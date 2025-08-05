@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeek } from "date-fns"
 import { es } from "date-fns/locale"
 import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon } from "lucide-react"
 
@@ -65,40 +65,98 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
   }
 
   const generateSchedule = () => {
-    const shiftRotation: ShiftType[] = ["Mañana", "Tarde", "Noche", "Administrativo", "Insumos", "Descanso", "Descanso"]
-    const newSchedules = employees.map((employee, empIndex) => {
-      const employeeSchedule: { day: number; shift: ShiftType }[] = []
-      let lastShift: ShiftType | null = null
-      let shiftPointer = empIndex
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const newSchedules: EmployeeSchedule[] = employees.map(emp => ({
+        employeeId: emp.id,
+        schedule: []
+    }));
 
-      for (let day = 1; day <= daysInMonth; day++) {
-        let assignedShift: ShiftType
-        let attempts = 0
-        do {
-          assignedShift = shiftRotation[shiftPointer % shiftRotation.length]
-          shiftPointer++
-          attempts++
-        } while (
-          ((assignedShift === 'Noche' && lastShift === 'Noche') ||
-           (assignedShift === 'Insumos' && lastShift === 'Insumos')) &&
-           attempts < shiftRotation.length
-        )
+    let employeePool = [...employees];
 
-        if (attempts >= shiftRotation.length) {
-          assignedShift = 'Descanso'
+    for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(year, month, day);
+        const weekNumber = getWeek(date, { weekStartsOn: 1 });
+
+        if (date.getDay() === 1 || day === 1) { // Monday or first day of month
+            employeePool = [...employees];
+            
+            const weekSeed = weekNumber;
+            const morningOffset = (weekSeed * 2) % 8;
+            const afternoonOffset = (weekSeed * 2 + 2) % 8;
+            const nightOffset = (weekSeed * 2 + 4) % 8;
+            const adminOffset = (weekSeed) % 8;
+            const insumosOffset = (weekSeed + 1) % 8;
+
+            const assignedShifts: { [key: string]: ShiftType } = {};
+            const shiftAssignments: {shift: ShiftType, count: number, offset: number}[] = [
+                { shift: 'Mañana', count: 2, offset: morningOffset },
+                { shift: 'Tarde', count: 2, offset: afternoonOffset },
+                { shift: 'Noche', count: 2, offset: nightOffset },
+                { shift: 'Administrativo', count: 1, offset: adminOffset },
+                { shift: 'Insumos', count: 1, offset: insumosOffset },
+            ];
+            
+            const tempEmployeePool = [...employeePool];
+            const assignedIds = new Set<string>();
+
+            for (const assignment of shiftAssignments) {
+                for (let i = 0; i < assignment.count; i++) {
+                    let empIndex = (assignment.offset + i) % tempEmployeePool.length;
+                    let employee = tempEmployeePool[empIndex];
+                    
+                    let guard = 0;
+                    while(assignedIds.has(employee.id) && guard < tempEmployeePool.length) {
+                        empIndex = (empIndex + 1) % tempEmployeePool.length;
+                        employee = tempEmployeePool[empIndex];
+                        guard++;
+                    }
+
+                    if (!assignedIds.has(employee.id)) {
+                        assignedShifts[employee.id] = assignment.shift;
+                        assignedIds.add(employee.id);
+                    }
+                }
+            }
+            
+            const remainingEmployees = employeePool.filter(e => !assignedIds.has(e.id));
+            remainingEmployees.forEach(emp => {
+                assignedShifts[emp.id] = 'Descanso';
+            });
+
+            // Assign for the week
+            for (let d = day; d < day + 7 && d <= daysInMonth; d++) {
+                const currentDayIsWeekend = new Date(year, month, d).getDay() === 6 || new Date(year, month, d).getDay() === 0; // Sat or Sun
+                
+                employees.forEach(emp => {
+                    const schedule = newSchedules.find(s => s.employeeId === emp.id)!.schedule;
+                    if (schedule.some(s => s.day === d)) return;
+
+                    let shift = assignedShifts[emp.id] || 'Descanso';
+                    if (currentDayIsWeekend && (shift === 'Administrativo' || shift === 'Insumos')) {
+                        shift = 'Descanso';
+                    }
+                    schedule.push({ day: d, shift });
+                });
+            }
         }
-        
-        employeeSchedule.push({ day, shift: assignedShift })
-        lastShift = assignedShift
-      }
-      return { employeeId: employee.id, schedule: employeeSchedule }
-    })
-    setSchedules(newSchedules)
-  }
+    }
+     setSchedules(newSchedules);
+  };
+
 
   React.useEffect(() => {
-    setSchedules(initialScheduleData)
-  }, [initialScheduleData, currentDate])
+    // When the component mounts or date changes, generate a fresh schedule
+    const newInitialSchedule = employees.map(employee => ({
+      employeeId: employee.id,
+      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+        day: i + 1,
+        shift: 'Descanso',
+      })),
+    }));
+    setSchedules(newInitialSchedule);
+  }, [currentDate, employees, daysInMonth]);
+
 
   const filteredEmployees = selectedEmployeeId === "all"
     ? employees
@@ -206,3 +264,5 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     </Card>
   )
 }
+
+    
