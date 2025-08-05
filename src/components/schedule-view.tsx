@@ -86,7 +86,6 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     let lastWeekAssignments: { [key: string]: ShiftType } = {};
     let processedWeeks = new Set<number>();
     
-    // Determine which group is eligible for 'Insumos' this month
     const insumosEligibleGroup = month % 2 === 0 ? insumosGroups.groupA : insumosGroups.groupB;
 
     for (let day = 1; day <= daysInMonth; day++) {
@@ -99,7 +98,6 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
             
             let availableEmployees = [...employees];
             
-            // Fisher-Yates shuffle for randomness
             for (let i = availableEmployees.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [availableEmployees[i], availableEmployees[j]] = [availableEmployees[j], availableEmployees[i]];
@@ -108,43 +106,45 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
             const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
                 let assignedCount = 0;
                 const pool = customPool || availableEmployees;
-                const employeesToProcess = pool.filter(e => weeklyAssignments[e.id] === undefined);
-
+                // Get a fresh list of unassigned employees for this specific shift assignment
+                const employeesToProcess = pool.filter(e => !Object.keys(weeklyAssignments).includes(e.id));
+            
                 for (const employee of employeesToProcess) {
                     if(assignedCount >= count) break;
-
+            
                     let canAssign = true;
-                    // Rule: Don't repeat Noche or Insumos in the same month
                     if (shift === 'Noche' || shift === 'Insumos') {
                         if (monthlyAssignments[employee.id].includes(shift)) {
                             canAssign = false;
                         }
                     }
-                    // Rule: Don't repeat Mañana or Tarde on consecutive weeks
                     if (shift === 'Mañana' || shift === 'Tarde') {
                         if (lastWeekAssignments[employee.id] === shift) {
                             canAssign = false;
                         }
                     }
-
+            
                     if (canAssign) {
                         weeklyAssignments[employee.id] = shift;
-                        monthlyAssignments[employee.id].push(shift);
                         assignedCount++;
                     }
                 }
             };
             
-            // Assign Insumos from the eligible group
             const insumosPool = availableEmployees.filter(e => insumosEligibleGroup.includes(e.id));
             assignShift('Insumos', 1, insumosPool);
-            
-            // Assign other shifts from the remaining pool
+
             assignShift('Noche', 2);
             assignShift('Administrativo', 1);
             assignShift('Mañana', 2);
             assignShift('Tarde', 2);
 
+            employees.forEach(emp => {
+                if (weeklyAssignments[emp.id]) {
+                    monthlyAssignments[emp.id].push(weeklyAssignments[emp.id]);
+                }
+            });
+            
             lastWeekAssignments = { ...weeklyAssignments };
 
             const firstDayOfWeek = day;
@@ -162,13 +162,13 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                         case 'Mañana':
                         case 'Tarde':
                         case 'Insumos':
-                            if (dayOfWeek !== 0) { // Mon-Sat
+                            if (dayOfWeek !== 0) {
                                 dailyShift = weeklyShift;
                             }
                             break;
                         case 'Noche':
                         case 'Administrativo':
-                            if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Mon-Fri
+                            if (dayOfWeek >= 1 && dayOfWeek <= 5) {
                                 dailyShift = weeklyShift;
                             }
                             break;
@@ -184,7 +184,6 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         }
     }
      setSchedules(newSchedules);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDate, employees, daysInMonth, insumosGroups]);
 
 
@@ -299,3 +298,5 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     </Card>
   )
 }
+
+    
