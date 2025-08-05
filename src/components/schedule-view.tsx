@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeek, startOfWeek, endOfWeek, eachDayOfInterval } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeek, startOfWeek, endOfWeek, eachDayOfInterval, getWeeksInMonth, addWeeks, isSameMonth } from "date-fns"
 import { es } from "date-fns/locale"
 import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon } from "lucide-react"
 
@@ -82,110 +82,94 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         })),
     }));
 
-    const monthlyAssignments: { [key: string]: ShiftType[] } = employees.reduce((acc, emp) => ({ ...acc, [emp.id]: [] }), {});
+    const monthlyAssignments: { [key: string]: ShiftType[] } = {};
     let lastWeekAssignments: { [key: string]: ShiftType } = {};
     
     const insumosEligibleGroup = month % 2 === 0 ? insumosGroups.groupA : insumosGroups.groupB;
 
     const monthStartDate = startOfMonth(currentDate);
-    let weekStart = startOfWeek(monthStartDate, { weekStartsOn: 1 });
-
-    while (weekStart.getMonth() === month || startOfWeek(endOfWeek(weekStart, {weekStartsOn: 1}), {weekStartsOn:1}).getMonth() === month) {
-      if (weekStart.getMonth() !== month && weekStart < monthStartDate) {
-        weekStart = addMonths(weekStart, 1);
-        weekStart.setDate(1);
-        weekStart = startOfWeek(weekStart, { weekStartsOn: 1 });
-      }
-
-      const weeklyAssignments: { [key: string]: ShiftType } = {};
-      let availableEmployees = [...employees];
-      
-      // Shuffle employees for random assignment
-      for (let i = availableEmployees.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [availableEmployees[i], availableEmployees[j]] = [availableEmployees[j], availableEmployees[i]];
-      }
-      
-      const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
-          let assignedCount = 0;
-          const pool = customPool || availableEmployees;
-          const employeesToProcess = pool.filter(e => !Object.values(weeklyAssignments).includes(e.id) && !weeklyAssignments[e.id]);
-
-          for (const employee of employeesToProcess) {
-              if (assignedCount >= count) break;
-              
-              let canAssign = true;
-              if (shift === 'Noche' || shift === 'Insumos') {
-                  if (monthlyAssignments[employee.id]?.includes(shift)) {
-                      canAssign = false;
-                  }
-              }
-              if (shift === 'Mañana' || shift === 'Tarde') {
-                  if (lastWeekAssignments[employee.id] === shift) {
-                      canAssign = false;
-                  }
-              }
-
-              if (canAssign) {
-                  weeklyAssignments[employee.id] = shift;
-                  assignedCount++;
-              }
-          }
-      };
-      
-      const insumosPool = availableEmployees.filter(e => insumosEligibleGroup.includes(e.id));
-      assignShift('Insumos', 1, insumosPool);
-
-      assignShift('Noche', 2);
-      assignShift('Administrativo', 1);
-      assignShift('Mañana', 2);
-      assignShift('Tarde', 2);
-
-      employees.forEach(emp => {
-          if (weeklyAssignments[emp.id]) {
-              if (!monthlyAssignments[emp.id]) monthlyAssignments[emp.id] = [];
-              monthlyAssignments[emp.id].push(weeklyAssignments[emp.id]);
-          }
-      });
-      lastWeekAssignments = { ...weeklyAssignments };
     
-      const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
+    const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
+    const firstWeekOfMonth = startOfWeek(monthStartDate, { weekStartsOn: 1 });
 
-      for(const dayDate of weekDays) {
-        if (dayDate.getMonth() !== month) continue;
+    for (let i = 0; i < weeksInMonthCount; i++) {
+        let weekStart = addWeeks(firstWeekOfMonth, i);
+        if (!isSameMonth(weekStart, monthStartDate) && i === 0) {
+            // continue, if first day of week is not in current month, but it's first week.
+        } else if (!isSameMonth(weekStart, monthStartDate)) {
+            continue;
+        }
 
-        const dayOfWeek = dayDate.getDay(); // Sunday is 0, Saturday is 6
-        const dayOfMonth = dayDate.getDate();
+        let availableEmployees = [...employees];
+        const weeklyAssignments: { [key: string]: ShiftType } = {};
+        
+        const shuffle = (array: any[]) => array.sort(() => Math.random() - 0.5);
 
-        employees.forEach(emp => {
-          const weeklyShift = weeklyAssignments[emp.id] || 'Descanso';
-          let dailyShift: ShiftType = 'Descanso';
+        const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
+            const pool = customPool ? shuffle([...customPool]) : shuffle([...availableEmployees]);
+            let assignedCount = 0;
+            
+            for (const employee of pool) {
+                if (assignedCount >= count) break;
+                if (weeklyAssignments[employee.id]) continue;
 
-          switch (weeklyShift) {
-              case 'Mañana':
-              case 'Tarde':
-              case 'Insumos':
-                  if (dayOfWeek !== 0) { // Not Sunday
-                      dailyShift = weeklyShift;
-                  }
-                  break;
-              case 'Noche':
-              case 'Administrativo':
-                  if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Monday to Friday
-                      dailyShift = weeklyShift;
-                  }
-                  break;
-          }
-          
-          const schedule = newSchedules.find(s => s.employeeId === emp.id)!.schedule;
-          const dayIndex = schedule.findIndex(s => s.day === dayOfMonth);
-          if (dayIndex !== -1) {
-            schedule[dayIndex].shift = dailyShift;
-          }
-        });
-      }
-      
-      weekStart = startOfWeek(addMonths(weekStart, 0).setDate(weekStart.getDate() + 7), { weekStartsOn: 1 });
+                const hasMonthlyConflict = (shift === 'Noche' || shift === 'Insumos') && monthlyAssignments[employee.id]?.includes(shift);
+                const hasWeeklyConflict = (shift === 'Mañana' || shift === 'Tarde') && lastWeekAssignments[employee.id] === shift;
+
+                if (!hasMonthlyConflict && !hasWeeklyConflict) {
+                    weeklyAssignments[employee.id] = shift;
+                    if (!monthlyAssignments[employee.id]) monthlyAssignments[employee.id] = [];
+                    monthlyAssignments[employee.id].push(shift);
+                    assignedCount++;
+                }
+            }
+            availableEmployees = availableEmployees.filter(e => !weeklyAssignments[e.id]);
+        };
+
+        const insumosPool = employees.filter(e => insumosEligibleGroup.includes(e.id));
+        assignShift('Insumos', 1, insumosPool);
+        assignShift('Noche', 2);
+        assignShift('Administrativo', 1);
+        assignShift('Mañana', 2);
+        assignShift('Tarde', 2);
+
+        lastWeekAssignments = { ...weeklyAssignments };
+    
+        const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
+
+        for(const dayDate of weekDays) {
+            if (dayDate.getMonth() !== month) continue;
+
+            const dayOfWeek = dayDate.getDay(); // Sunday is 0, Saturday is 6. M=1, T=2, W=3, T=4, F=5, S=6
+            const dayOfMonth = dayDate.getDate();
+
+            employees.forEach(emp => {
+                const weeklyShift = weeklyAssignments[emp.id] || 'Descanso';
+                let dailyShift: ShiftType = 'Descanso';
+
+                switch (weeklyShift) {
+                    case 'Mañana':
+                    case 'Tarde':
+                    case 'Insumos':
+                        if (dayOfWeek !== 0) { // Mon-Sat
+                            dailyShift = weeklyShift;
+                        }
+                        break;
+                    case 'Noche':
+                    case 'Administrativo':
+                        if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Mon-Fri
+                            dailyShift = weeklyShift;
+                        }
+                        break;
+                }
+                
+                const schedule = newSchedules.find(s => s.employeeId === emp.id)!.schedule;
+                const dayIndex = schedule.findIndex(s => s.day === dayOfMonth);
+                if (dayIndex !== -1) {
+                    schedule[dayIndex].shift = dailyShift;
+                }
+            });
+        }
     }
     setSchedules(newSchedules);
   }, [currentDate, employees, daysInMonth, insumosGroups]);
