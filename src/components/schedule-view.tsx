@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeek, startOfWeek, endOfWeek, eachDayOfInterval, getWeeksInMonth, addWeeks, isSameMonth } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeeksInMonth, startOfWeek, addDays, eachDayOfInterval, endOfWeek } from "date-fns"
 import { es } from "date-fns/locale"
 import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon } from "lucide-react"
 
@@ -41,7 +41,6 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     return { groupA: groupA_ids, groupB: groupB_ids };
   }, [employees]);
 
-
   const daysInMonth = getDaysInMonth(currentDate)
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1)
 
@@ -70,6 +69,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
  const generateSchedule = React.useCallback(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
+
     const newSchedules: EmployeeSchedule[] = employees.map(emp => ({
         employeeId: emp.id,
         schedule: Array.from({ length: daysInMonth }, (_, i) => ({
@@ -78,7 +78,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         })),
     }));
 
-    let monthlyAssignments: { [key: string]: ShiftType[] } = {};
+    const monthlyAssignments: { [key: string]: ShiftType[] } = {};
     employees.forEach(e => { monthlyAssignments[e.id] = [] });
 
     let lastWeekAssignments: { [key: string]: ShiftType | undefined } = {};
@@ -87,10 +87,9 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
-    const firstWeekOfMonth = startOfWeek(monthStartDate, { weekStartsOn: 1 });
 
     for (let i = 0; i < weeksInMonthCount; i++) {
-        let weekStart = addWeeks(firstWeekOfMonth, i);
+        let weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), i * 7);
         if (weekStart.getMonth() !== month && i > 0) continue;
 
         let availableEmployees = [...employees];
@@ -104,7 +103,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
             
             for (const employee of pool) {
                 if (assignedCount >= count) break;
-                if (weeklyAssignments[employee.id]) continue;
+                if (weeklyAssignments[employee.id] || !availableEmployees.some(e => e.id === employee.id)) continue;
                 
                 const empMonthlyShifts = monthlyAssignments[employee.id] || [];
                 const lastWeekShift = lastWeekAssignments[employee.id];
@@ -121,10 +120,10 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                 
                 if (!hasConflict) {
                     weeklyAssignments[employee.id] = shift;
+                    availableEmployees = availableEmployees.filter(e => e.id !== employee.id);
                     assignedCount++;
                 }
             }
-            availableEmployees = availableEmployees.filter(e => !Object.keys(weeklyAssignments).includes(e.id));
         };
         
         const insumosPool = availableEmployees.filter(e => insumosEligibleGroupIds.includes(e.id));
@@ -142,8 +141,10 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         
         Object.keys(weeklyAssignments).forEach(employeeId => {
             const shift = weeklyAssignments[employeeId];
-            if (!monthlyAssignments[employeeId]) monthlyAssignments[employeeId] = [];
-            if(shift !== 'Descanso') monthlyAssignments[employeeId].push(shift);
+            if (shift !== 'Descanso') {
+              if (!monthlyAssignments[employeeId]) monthlyAssignments[employeeId] = [];
+              monthlyAssignments[employeeId].push(shift);
+            }
         });
 
         lastWeekAssignments = { ...weeklyAssignments };
@@ -153,29 +154,27 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         for (const dayDate of weekDays) {
             if (dayDate.getMonth() !== month) continue;
 
-            const dayOfWeek = dayDate.getDay(); // Sunday is 0
+            const dayOfWeek = dayDate.getDay(); // Sunday is 0, Monday is 1
             const dayOfMonth = dayDate.getDate();
 
             employees.forEach(emp => {
                 const weeklyShift = weeklyAssignments[emp.id] || 'Descanso';
-                let dailyShift: ShiftType = 'Descanso';
+                let dailyShift: ShiftType = weeklyShift;
 
-                if (weeklyShift !== 'Descanso') {
-                   switch (weeklyShift) {
-                        case 'Mañana':
-                        case 'Tarde':
-                        case 'Insumos':
-                            if (dayOfWeek !== 0) { // Not Sunday
-                                dailyShift = weeklyShift;
-                            }
-                            break;
-                        case 'Noche':
-                        case 'Administrativo':
-                            if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Mon-Fri
-                                dailyShift = weeklyShift;
-                            }
-                            break;
-                    }
+                switch (weeklyShift) {
+                    case 'Mañana':
+                    case 'Tarde':
+                    case 'Insumos':
+                        if (dayOfWeek === 0) { // Sunday
+                            dailyShift = 'Descanso';
+                        }
+                        break;
+                    case 'Noche':
+                    case 'Administrativo':
+                        if (dayOfWeek === 6 || dayOfWeek === 0) { // Saturday or Sunday
+                            dailyShift = 'Descanso';
+                        }
+                        break;
                 }
                 
                 const empSchedule = newSchedules.find(s => s.employeeId === emp.id);
