@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeeksInMonth, startOfWeek, addDays, eachDayOfInterval, endOfWeek } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeeksInMonth, startOfWeek, addDays, eachDayOfInterval, endOfWeek, getWeek } from "date-fns"
 import { es } from "date-fns/locale"
-import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon } from "lucide-react"
+import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings } from "lucide-react"
 
 import type { Employee, EmployeeSchedule, ShiftType } from "@/types"
 import { cn } from "@/lib/utils"
@@ -13,13 +13,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 
-interface ScheduleViewProps {
-  employees: Employee[]
-  initialScheduleData: EmployeeSchedule[]
-}
-
-const SHIFT_TYPES: ShiftType[] = ["Mañana", "Tarde", "Noche", "Administrativo", "Insumos", "Descanso"]
+const ALL_SHIFT_TYPES: ShiftType[] = ["Mañana", "Tarde", "Noche", "Administrativo", "Insumos", "Descanso"]
 
 const shiftVariantMap: Record<ShiftType, string> = {
   "Mañana": "bg-sky-500/10 text-sky-700 border-sky-500/20 dark:text-sky-400 dark:border-sky-500/30",
@@ -30,20 +28,19 @@ const shiftVariantMap: Record<ShiftType, string> = {
   "Descanso": "bg-gray-500/10 text-gray-600 border-gray-500/20 dark:text-gray-400 dark:border-gray-500/30",
 }
 
-export function ScheduleView({ employees, initialScheduleData }: ScheduleViewProps) {
+interface ScheduleViewProps {
+  employees: Employee[]
+  initialScheduleData: EmployeeSchedule[]
+}
+
+export function ScheduleView({ employees: allEmployees, initialScheduleData }: ScheduleViewProps) {
   const [currentDate, setCurrentDate] = React.useState(startOfMonth(new Date()))
   const [schedules, setSchedules] = React.useState<EmployeeSchedule[]>(initialScheduleData)
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
+  const [activeEmployeeIds, setActiveEmployeeIds] = React.useState<Set<string>>(new Set(allEmployees.map(e => e.id)));
+
+  const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
   
-  const insumosGroups = React.useMemo(() => {
-    const groupA_ids = employees.slice(0, 4).map(e => e.id);
-    const groupB_ids = employees.slice(4, 8).map(e => e.id);
-    return { groupA: groupA_ids, groupB: groupB_ids };
-  }, [employees]);
-
-  const daysInMonth = getDaysInMonth(currentDate)
-  const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1)
-
   const handleShiftChange = (employeeId: string, day: number, newShift: ShiftType) => {
     setSchedules(prevSchedules =>
       prevSchedules.map(empSchedule => {
@@ -69,8 +66,14 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
  const generateSchedule = React.useCallback(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
+    const daysInMonth = getDaysInMonth(currentDate);
 
-    const newSchedules: EmployeeSchedule[] = employees.map(emp => ({
+    if (activeEmployees.length === 0) {
+      setSchedules([]);
+      return;
+    }
+
+    const newSchedules: EmployeeSchedule[] = activeEmployees.map(emp => ({
         employeeId: emp.id,
         schedule: Array.from({ length: daysInMonth }, (_, i) => ({
             day: i + 1,
@@ -78,47 +81,33 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         })),
     }));
 
-    const monthlyAssignments: { [key: string]: ShiftType[] } = {};
-    employees.forEach(e => { monthlyAssignments[e.id] = [] });
+    const groupA_ids = allEmployees.slice(0, 4).map(e => e.id);
+    const groupB_ids = allEmployees.slice(4, 8).map(e => e.id);
 
-    let lastWeekAssignments: { [key: string]: ShiftType | undefined } = {};
-    
-    const insumosEligibleGroupIds = (month + 1) % 2 === 1 ? insumosGroups.groupA : insumosGroups.groupB;
-    
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
 
     for (let i = 0; i < weeksInMonthCount; i++) {
         let weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), i * 7);
-        if (weekStart.getMonth() !== month && i > 0) continue;
+        if (weekStart.getMonth() !== month && i > 0 && weekStart.getDate() > 7) continue;
 
-        let availableEmployees = [...employees];
+        let availableEmployees = [...activeEmployees];
         const weeklyAssignments: { [key: string]: ShiftType } = {};
         
-        const shuffle = (array: any[]) => array.sort(() => Math.random() - 0.5);
+        const weekOfYear = getWeek(weekStart, { weekStartsOn: 1 });
 
         const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
-            let pool = customPool ? shuffle([...customPool]) : shuffle([...availableEmployees]);
+            let pool = customPool ? [...customPool] : [...availableEmployees];
             let assignedCount = 0;
             
-            for (const employee of pool) {
+            for (let j = 0; j < pool.length; j++) {
                 if (assignedCount >= count) break;
-                if (weeklyAssignments[employee.id] || !availableEmployees.some(e => e.id === employee.id)) continue;
-                
-                const empMonthlyShifts = monthlyAssignments[employee.id] || [];
-                const lastWeekShift = lastWeekAssignments[employee.id];
 
-                let hasConflict = false;
-                if (shift === 'Noche' || shift === 'Insumos') {
-                    if (empMonthlyShifts.includes(shift)) {
-                        hasConflict = true;
-                    }
-                }
-                if ((shift === 'Mañana' || shift === 'Tarde') && lastWeekShift === shift) {
-                    hasConflict = true;
-                }
-                
-                if (!hasConflict) {
+                // Deterministic rotation based on week of year
+                const employeeIndex = (weekOfYear + j + assignedCount) % pool.length;
+                const employee = pool[employeeIndex];
+
+                if (availableEmployees.some(e => e.id === employee.id)) {
                     weeklyAssignments[employee.id] = shift;
                     availableEmployees = availableEmployees.filter(e => e.id !== employee.id);
                     assignedCount++;
@@ -126,29 +115,18 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
             }
         };
         
-        const insumosPool = availableEmployees.filter(e => insumosEligibleGroupIds.includes(e.id));
-        assignShift('Insumos', 1, insumosPool.length > 0 ? insumosPool : undefined);
+        const includeInsumos = activeEmployees.length >= 8;
+        if (includeInsumos) {
+          const insumosEligibleGroupIds = (month + 1) % 2 === 1 ? groupA_ids : groupB_ids;
+          const insumosPool = availableEmployees.filter(e => insumosEligibleGroupIds.includes(e.id));
+          assignShift('Insumos', 1, insumosPool.length > 0 ? insumosPool : undefined);
+        }
+
         assignShift('Noche', 2);
         assignShift('Administrativo', 1);
         assignShift('Mañana', 2);
-        assignShift('Tarde', 2);
+        assignShift('Tarde', availableEmployees.length); // Assign rest to Tarde
         
-        availableEmployees.forEach(e => {
-            if (!weeklyAssignments[e.id]) {
-                weeklyAssignments[e.id] = 'Descanso';
-            }
-        });
-        
-        Object.keys(weeklyAssignments).forEach(employeeId => {
-            const shift = weeklyAssignments[employeeId];
-            if (shift !== 'Descanso') {
-              if (!monthlyAssignments[employeeId]) monthlyAssignments[employeeId] = [];
-              monthlyAssignments[employeeId].push(shift);
-            }
-        });
-
-        lastWeekAssignments = { ...weeklyAssignments };
-    
         const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
         
         for (const dayDate of weekDays) {
@@ -157,7 +135,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
             const dayOfWeek = dayDate.getDay(); // Sunday is 0, Monday is 1
             const dayOfMonth = dayDate.getDate();
 
-            employees.forEach(emp => {
+            activeEmployees.forEach(emp => {
                 const weeklyShift = weeklyAssignments[emp.id] || 'Descanso';
                 let dailyShift: ShiftType = weeklyShift;
 
@@ -188,7 +166,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         }
     }
     setSchedules(newSchedules);
-  }, [currentDate, employees, daysInMonth, insumosGroups]);
+  }, [currentDate, activeEmployees, allEmployees]);
 
 
   React.useEffect(() => {
@@ -197,8 +175,10 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
 
 
   const filteredEmployees = selectedEmployeeId === "all"
-    ? employees
-    : employees.filter(e => e.id === selectedEmployeeId)
+    ? activeEmployees
+    : activeEmployees.filter(e => e.id === selectedEmployeeId)
+
+  const shiftTypesToDisplay = activeEmployees.length >= 8 ? ALL_SHIFT_TYPES : ALL_SHIFT_TYPES.filter(s => s !== 'Insumos');
 
   return (
     <Card className="w-full shadow-lg">
@@ -227,11 +207,45 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all"><Users className="inline-block w-4 h-4 mr-2"/>Todos los empleados</SelectItem>
-                {employees.map(e => (
+                {activeEmployees.map(e => (
                   <SelectItem key={e.id} value={e.id}><User className="inline-block w-4 h-4 mr-2"/>{e.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <Sheet>
+                <SheetTrigger asChild>
+                    <Button variant="outline" size="icon">
+                        <Settings className="w-4 h-4" />
+                    </Button>
+                </SheetTrigger>
+                <SheetContent>
+                    <SheetHeader>
+                        <SheetTitle>Gestionar Empleados</SheetTitle>
+                    </SheetHeader>
+                    <div className="grid gap-4 py-4">
+                       {allEmployees.map(employee => (
+                         <div key={employee.id} className="flex items-center space-x-2">
+                           <Checkbox
+                             id={`employee-${employee.id}`}
+                             checked={activeEmployeeIds.has(employee.id)}
+                             onCheckedChange={(checked) => {
+                               setActiveEmployeeIds(prev => {
+                                 const newSet = new Set(prev);
+                                 if (checked) {
+                                   newSet.add(employee.id);
+                                 } else {
+                                   newSet.delete(employee.id);
+                                 }
+                                 return newSet;
+                               });
+                             }}
+                           />
+                           <Label htmlFor={`employee-${employee.id}`}>{employee.name}</Label>
+                         </div>
+                       ))}
+                    </div>
+                </SheetContent>
+            </Sheet>
           </div>
         </div>
       </CardHeader>
@@ -241,7 +255,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="sticky left-0 z-10 p-2 text-sm font-bold text-left bg-card w-36">Empleado</TableHead>
-                {daysArray.map(day => (
+                {Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => i + 1).map(day => (
                   <TableHead key={day} className="p-2 text-sm font-bold text-center w-28">
                     {day}
                   </TableHead>
@@ -255,7 +269,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                 return (
                   <TableRow key={employee.id}>
                     <TableCell className="sticky left-0 z-10 p-2 font-medium text-left bg-card w-36">{employee.name}</TableCell>
-                    {daysArray.map((day, dayIndex) => {
+                    {Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => i + 1).map((day, dayIndex) => {
                       const shift = empSchedule.schedule.find(s => s.day === day)?.shift || "Descanso"
                       const conflict = hasConflict(empSchedule.schedule, dayIndex)
                       return (
@@ -270,7 +284,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent>
-                              {SHIFT_TYPES.map(shiftType => (
+                              {shiftTypesToDisplay.map(shiftType => (
                                 <DropdownMenuItem key={shiftType} onSelect={() => handleShiftChange(employee.id, day, shiftType)}>
                                   {shiftType}
                                 </DropdownMenuItem>
@@ -290,7 +304,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
           <div className="p-4 mt-4 border rounded-lg bg-muted/50">
             <h4 className="mb-2 font-bold">Resumen de Turnos:</h4>
             <div className="flex flex-wrap gap-2">
-            {SHIFT_TYPES.map(shiftType => {
+            {shiftTypesToDisplay.map(shiftType => {
               const count = schedules.find(s => s.employeeId === selectedEmployeeId)?.schedule.filter(d => d.shift === shiftType).length || 0;
               if (count === 0) return null;
               return <Badge key={shiftType} variant="outline" className={cn("text-sm", shiftVariantMap[shiftType])}>{shiftType}: {count}</Badge>
