@@ -87,9 +87,19 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
 
+    const monthlyNightAssignments: Record<string, boolean> = {};
+    const monthlyInsumosAssignments: Record<string, boolean> = {};
+    let lastWeekAssignments: Record<string, ShiftType> = {};
+
+
     for (let i = 0; i < weeksInMonthCount; i++) {
         let weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), i * 7);
-        if (weekStart.getMonth() !== month && i > 0 && weekStart.getDate() > 7) continue;
+         if (weekStart.getMonth() !== month && i > 0 && weekStart.getDate() > 7) {
+            if (endOfWeek(weekStart, { weekStartsOn: 1 }).getMonth() !== month) {
+              continue;
+            }
+        }
+
 
         let availableEmployees = [...activeEmployees];
         const weeklyAssignments: { [key: string]: ShiftType } = {};
@@ -100,15 +110,25 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
             let pool = customPool ? [...customPool] : [...availableEmployees];
             let assignedCount = 0;
             
+            // Filter out employees who can't take this shift
+            pool = pool.filter(emp => {
+                if(shift === 'Noche' && monthlyNightAssignments[emp.id]) return false;
+                if(shift === 'Insumos' && monthlyInsumosAssignments[emp.id]) return false;
+                if((shift === 'Mañana' || shift === 'Tarde') && lastWeekAssignments[emp.id] === shift) return false;
+                return true;
+            });
+            
+            // Deterministic but rotating selection
             for (let j = 0; j < pool.length; j++) {
                 if (assignedCount >= count) break;
-
-                // Deterministic rotation based on week of year
-                const employeeIndex = (weekOfYear + j + assignedCount) % pool.length;
+                const employeeIndex = (weekOfYear + j) % pool.length;
                 const employee = pool[employeeIndex];
 
-                if (availableEmployees.some(e => e.id === employee.id)) {
+                if (availableEmployees.some(e => e.id === employee.id) && !weeklyAssignments[employee.id]) {
                     weeklyAssignments[employee.id] = shift;
+                    if(shift === 'Noche') monthlyNightAssignments[employee.id] = true;
+                    if(shift === 'Insumos') monthlyInsumosAssignments[employee.id] = true;
+
                     availableEmployees = availableEmployees.filter(e => e.id !== employee.id);
                     assignedCount++;
                 }
@@ -125,8 +145,16 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         assignShift('Noche', 2);
         assignShift('Administrativo', 1);
         assignShift('Mañana', 2);
-        assignShift('Tarde', availableEmployees.length); // Assign rest to Tarde
         
+        // Assign rest to Tarde
+        availableEmployees.forEach(emp => {
+            if (!weeklyAssignments[emp.id]) {
+                weeklyAssignments[emp.id] = 'Tarde';
+            }
+        });
+        
+        lastWeekAssignments = {...weeklyAssignments};
+
         const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
         
         for (const dayDate of weekDays) {
@@ -170,8 +198,16 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
 
   React.useEffect(() => {
-    generateSchedule();
-  }, [generateSchedule]);
+    const daysInMonth = getDaysInMonth(currentDate);
+    const resetSchedules = activeEmployees.map(emp => ({
+      employeeId: emp.id,
+      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+        day: i + 1,
+        shift: 'Descanso' as ShiftType,
+      })),
+    }));
+    setSchedules(resetSchedules);
+  }, [currentDate, activeEmployees]);
 
 
   const filteredEmployees = selectedEmployeeId === "all"
