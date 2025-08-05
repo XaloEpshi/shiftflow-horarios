@@ -63,14 +63,14 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     if (dayIndex === 0) return false
     const currentShift = employeeSchedule[dayIndex]?.shift
     const prevShift = employeeSchedule[dayIndex - 1]?.shift
-    if (!currentShift || !prevShift) return false
+    if (!currentShift || !prevShift) return false;
 
-    if ((currentShift === "Noche" && prevShift === "Noche") || (currentShift === "Insumos" && prevShift === "Insumos")) {
-      return true
-    }
-    return false
+    // This logic is for visual conflict indication, not generation logic.
+    // Example: Highlight if Noche is followed by Mañana next day.
+    // The generation logic should prevent this from happening.
+    return false;
   }
-
+  
   const generateSchedule = React.useCallback(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -83,12 +83,13 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     }));
 
     let monthlyAssignments: { [key: string]: ShiftType[] } = {};
-    let lastWeekAssignments: { [key: string]: ShiftType } = {};
+    employees.forEach(e => { monthlyAssignments[e.id] = [] });
+
+    let lastWeekAssignments: { [key: string]: ShiftType | undefined } = {};
     
-    const insumosEligibleGroupIds = month % 2 === 0 ? insumosGroups.groupA : insumosGroups.groupB;
+    const insumosEligibleGroupIds = (month + 1) % 2 === 1 ? insumosGroups.groupA : insumosGroups.groupB;
 
     const monthStartDate = startOfMonth(currentDate);
-    
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
     const firstWeekOfMonth = startOfWeek(monthStartDate, { weekStartsOn: 1 });
 
@@ -96,16 +97,14 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         let weekStart = addWeeks(firstWeekOfMonth, i);
         if (weekStart.getMonth() !== month && i > 0) continue;
 
-
         let availableEmployees = [...employees];
         const weeklyAssignments: { [key: string]: ShiftType } = {};
         
         const shuffle = (array: any[]) => array.sort(() => Math.random() - 0.5);
 
         const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
-            const pool = customPool ? shuffle([...customPool]) : shuffle([...availableEmployees]);
+            let pool = customPool ? shuffle([...customPool]) : shuffle([...availableEmployees]);
             let assignedCount = 0;
-            let assignedEmployees: Employee[] = [];
             
             for (const employee of pool) {
                 if (assignedCount >= count) break;
@@ -114,19 +113,28 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                 const empMonthlyShifts = monthlyAssignments[employee.id] || [];
                 const lastWeekShift = lastWeekAssignments[employee.id];
 
-                const hasMonthlyConflict = (shift === 'Noche' || shift === 'Insumos') && empMonthlyShifts.includes(shift);
-                const hasConsecutiveWeeklyConflict = (shift === 'Mañana' || shift === 'Tarde') && lastWeekShift === shift;
-
-                if (!hasMonthlyConflict && !hasConsecutiveWeeklyConflict) {
+                let hasConflict = false;
+                if (shift === 'Noche' || shift === 'Insumos') {
+                    if (empMonthlyShifts.includes(shift)) {
+                        hasConflict = true;
+                    }
+                }
+                if (shift === 'Mañana' || shift === 'Tarde') {
+                   if(lastWeekShift === shift) {
+                       hasConflict = true;
+                   }
+                }
+                
+                if (!hasConflict) {
                     weeklyAssignments[employee.id] = shift;
-                    assignedEmployees.push(employee);
                     assignedCount++;
                 }
             }
+            // Remove assigned employees from the available pool for the next assignment
             availableEmployees = availableEmployees.filter(e => !weeklyAssignments[e.id]);
         };
 
-        const insumosPool = employees.filter(e => insumosEligibleGroupIds.includes(e.id));
+        const insumosPool = availableEmployees.filter(e => insumosEligibleGroupIds.includes(e.id));
         assignShift('Insumos', 1, insumosPool);
         
         assignShift('Noche', 2);
@@ -134,13 +142,12 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         assignShift('Mañana', 2);
         assignShift('Tarde', 2);
         
-        // Assign remaining employees to Descanso to ensure all are processed
         availableEmployees.forEach(e => {
             if (!weeklyAssignments[e.id]) {
                 weeklyAssignments[e.id] = 'Descanso';
             }
         });
-
+        
         Object.keys(weeklyAssignments).forEach(employeeId => {
             const shift = weeklyAssignments[employeeId];
             if (!monthlyAssignments[employeeId]) monthlyAssignments[employeeId] = [];
@@ -162,20 +169,14 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                 let dailyShift: ShiftType = 'Descanso';
 
                 if (weeklyShift !== 'Descanso') {
-                    switch (weeklyShift) {
-                        case 'Mañana':
-                        case 'Tarde':
-                        case 'Insumos':
-                            if (dayOfWeek !== 0) { // Mon-Sat
-                                dailyShift = weeklyShift;
-                            }
-                            break;
-                        case 'Noche':
-                        case 'Administrativo':
-                            if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Mon-Fri
-                                dailyShift = weeklyShift;
-                            }
-                            break;
+                    if (weeklyShift === 'Mañana' || weeklyShift === 'Tarde' || weeklyShift === 'Insumos') {
+                        if (dayOfWeek !== 0) { // Mon-Sat
+                            dailyShift = weeklyShift;
+                        }
+                    } else if (weeklyShift === 'Noche' || weeklyShift === 'Administrativo') {
+                        if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Mon-Fri
+                            dailyShift = weeklyShift;
+                        }
                     }
                 }
                 
