@@ -34,6 +34,13 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
   const [currentDate, setCurrentDate] = React.useState(startOfMonth(new Date()))
   const [schedules, setSchedules] = React.useState<EmployeeSchedule[]>(initialScheduleData)
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
+  
+  const insumosGroups = React.useMemo(() => {
+    const groupA_ids = employees.slice(0, 4).map(e => e.id);
+    const groupB_ids = employees.slice(4, 8).map(e => e.id);
+    return { groupA: groupA_ids, groupB: groupB_ids };
+  }, [employees]);
+
 
   const daysInMonth = getDaysInMonth(currentDate)
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1)
@@ -64,7 +71,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
     return false
   }
 
-  const generateSchedule = () => {
+  const generateSchedule = React.useCallback(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const newSchedules: EmployeeSchedule[] = employees.map(emp => ({
@@ -75,10 +82,12 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         })),
     }));
 
-    // Track assigned shifts to enforce rules
     const monthlyAssignments: { [key: string]: ShiftType[] } = employees.reduce((acc, emp) => ({ ...acc, [emp.id]: [] }), {});
     let lastWeekAssignments: { [key: string]: ShiftType } = {};
     let processedWeeks = new Set<number>();
+    
+    // Determine which group is eligible for 'Insumos' this month
+    const insumosEligibleGroup = month % 2 === 0 ? insumosGroups.groupA : insumosGroups.groupB;
 
     for (let day = 1; day <= daysInMonth; day++) {
         const date = new Date(year, month, day);
@@ -87,56 +96,57 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         if (!processedWeeks.has(weekNumber)) {
             processedWeeks.add(weekNumber);
             const weeklyAssignments: { [key: string]: ShiftType } = {};
-            const assignedIds = new Set<string>();
-            let employeePool = [...employees];
+            
+            let availableEmployees = [...employees];
             
             // Fisher-Yates shuffle for randomness
-            for (let i = employeePool.length - 1; i > 0; i--) {
+            for (let i = availableEmployees.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [employeePool[i], employeePool[j]] = [employeePool[j], employeePool[i]];
+                [availableEmployees[i], availableEmployees[j]] = [availableEmployees[j], availableEmployees[i]];
             }
             
-            const shiftAssignments: {shift: ShiftType, count: number}[] = [
-                { shift: 'Noche', count: 2 },
-                { shift: 'Insumos', count: 1 },
-                { shift: 'Administrativo', count: 1 },
-                { shift: 'Mañana', count: 2 },
-                { shift: 'Tarde', count: 2 },
-            ];
-
-            for (const assignment of shiftAssignments) {
+            const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
                 let assignedCount = 0;
-                let employeeIndex = 0;
+                const pool = customPool || availableEmployees;
+                const employeesToProcess = pool.filter(e => weeklyAssignments[e.id] === undefined);
 
-                while(assignedCount < assignment.count && employeeIndex < employeePool.length) {
-                    const employee = employeePool[employeeIndex];
-                    if (!assignedIds.has(employee.id)) {
-                        let canAssign = true;
-                        if (assignment.shift === 'Noche' || assignment.shift === 'Insumos') {
-                            if (monthlyAssignments[employee.id].includes(assignment.shift)) {
-                                canAssign = false;
-                            }
-                        }
-                        if (assignment.shift === 'Mañana' || assignment.shift === 'Tarde') {
-                            if (lastWeekAssignments[employee.id] === assignment.shift) {
-                                canAssign = false;
-                            }
-                        }
+                for (const employee of employeesToProcess) {
+                    if(assignedCount >= count) break;
 
-                        if(canAssign){
-                            weeklyAssignments[employee.id] = assignment.shift;
-                            monthlyAssignments[employee.id].push(assignment.shift);
-                            assignedIds.add(employee.id);
-                            assignedCount++;
+                    let canAssign = true;
+                    // Rule: Don't repeat Noche or Insumos in the same month
+                    if (shift === 'Noche' || shift === 'Insumos') {
+                        if (monthlyAssignments[employee.id].includes(shift)) {
+                            canAssign = false;
                         }
                     }
-                    employeeIndex++;
-                }
-            }
-            
-            lastWeekAssignments = weeklyAssignments;
+                    // Rule: Don't repeat Mañana or Tarde on consecutive weeks
+                    if (shift === 'Mañana' || shift === 'Tarde') {
+                        if (lastWeekAssignments[employee.id] === shift) {
+                            canAssign = false;
+                        }
+                    }
 
-            // Assign daily shifts for the current week
+                    if (canAssign) {
+                        weeklyAssignments[employee.id] = shift;
+                        monthlyAssignments[employee.id].push(shift);
+                        assignedCount++;
+                    }
+                }
+            };
+            
+            // Assign Insumos from the eligible group
+            const insumosPool = availableEmployees.filter(e => insumosEligibleGroup.includes(e.id));
+            assignShift('Insumos', 1, insumosPool);
+            
+            // Assign other shifts from the remaining pool
+            assignShift('Noche', 2);
+            assignShift('Administrativo', 1);
+            assignShift('Mañana', 2);
+            assignShift('Tarde', 2);
+
+            lastWeekAssignments = { ...weeklyAssignments };
+
             const firstDayOfWeek = day;
             for (let d = firstDayOfWeek; d < firstDayOfWeek + 7 && d <= daysInMonth; d++) {
                 const currentDay = new Date(year, month, d);
@@ -152,13 +162,13 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                         case 'Mañana':
                         case 'Tarde':
                         case 'Insumos':
-                            if (dayOfWeek !== 0) {
+                            if (dayOfWeek !== 0) { // Mon-Sat
                                 dailyShift = weeklyShift;
                             }
                             break;
                         case 'Noche':
                         case 'Administrativo':
-                            if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+                            if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Mon-Fri
                                 dailyShift = weeklyShift;
                             }
                             break;
@@ -166,7 +176,7 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
                     
                     const schedule = newSchedules.find(s => s.employeeId === emp.id)!.schedule;
                     const dayIndex = schedule.findIndex(s => s.day === d);
-                    if(dayIndex !== -1) {
+                    if(dayIndex !== -1 && schedule[dayIndex].shift === 'Descanso') {
                       schedule[dayIndex].shift = dailyShift;
                     }
                 });
@@ -174,13 +184,13 @@ export function ScheduleView({ employees, initialScheduleData }: ScheduleViewPro
         }
     }
      setSchedules(newSchedules);
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDate, employees, daysInMonth, insumosGroups]);
 
 
   React.useEffect(() => {
     generateSchedule();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDate, employees]);
+  }, [generateSchedule]);
 
 
   const filteredEmployees = selectedEmployeeId === "all"
