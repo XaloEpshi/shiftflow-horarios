@@ -93,7 +93,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         employeeId: emp.id,
         schedule: Array.from({ length: daysInMonth }, (_, i) => ({
             day: i + 1,
-            shift: 'Descanso',
+            shift: 'Descanso' as ShiftType,
         })),
     }));
 
@@ -102,11 +102,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
     const monthStartDate = startOfMonth(currentDate);
     const monthEndDate = endOfMonth(currentDate);
-    
     let currentWeekStart = startOfWeek(monthStartDate, { weekStartsOn: 1 });
-    if (currentWeekStart > monthStartDate && currentWeekStart.getDate() > 7) {
-        currentWeekStart = addDays(currentWeekStart, -7);
-    }
     
     const allWeeks: Date[] = [];
     let tempDate = currentWeekStart;
@@ -121,44 +117,43 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     });
 
     // 1. Asignaciones Fijas Mensuales
-    const monthlyAssignments: Record<string, ShiftType> = {};
-    
+    const monthlyNightAssignments = new Set<string>();
+
     // 1.1 Garantizar una semana de noche por empleado
-    if(activeEmployees.length >= 8) {
-        const nightPool = [...activeEmployees];
-        allWeeks.forEach((weekStart, weekIndex) => {
-            const weekNumber = getWeek(weekStart);
-            for(let i = 0; i < 2; i++) {
-                if(nightPool.length > 0) {
-                    const employeeIndex = (weekIndex * 2 + i + generationCount) % nightPool.length;
-                    const employee = nightPool[employeeIndex];
-                    if(employee && !weeklyAssignments[employee.id][weekNumber]) {
-                       weeklyAssignments[employee.id][weekNumber] = 'Noche';
-                       nightPool.splice(employeeIndex, 1);
-                    }
-                }
+    if (activeEmployees.length >= 8) {
+      const nightPool = [...activeEmployees];
+      allWeeks.forEach((weekStart) => {
+        const weekNumber = getWeek(weekStart);
+        for(let i = 0; i < 2; i++) {
+            if (nightPool.length > 0) {
+                const employee = nightPool.shift()!;
+                weeklyAssignments[employee.id][weekNumber] = 'Noche';
             }
-        });
+        }
+      });
     }
 
-    // 1.2 Asignar Insumos
+    // 1.2 Asignar Insumos con rotación bimestral
     if (activeEmployees.length >= 8) {
-        const isOddMonth = (month + 1) % 2 === 1;
-        const insumosGroupIds = isOddMonth ? groupA_ids : groupB_ids;
-        let insumosPool = activeEmployees.filter(e => insumosGroupIds.includes(e.id));
-        const weekForInsumos = allWeeks[generationCount % allWeeks.length];
-        const weekNumberForInsumos = getWeek(weekForInsumos);
-        
-        insumosPool = insumosPool.filter(e => !weeklyAssignments[e.id][weekNumberForInsumos]);
-        
-        if (insumosPool.length > 0) {
-            const employeeForInsumos = insumosPool[generationCount % insumosPool.length];
-            weeklyAssignments[employeeForInsumos.id][weekNumberForInsumos] = 'Insumos';
-        }
+      const isOddMonth = (month + 1) % 2 === 1;
+      const insumosGroupIds = isOddMonth ? groupA_ids : groupB_ids;
+      
+      const weekForInsumos = allWeeks[generationCount % allWeeks.length];
+      const weekNumberForInsumos = getWeek(weekForInsumos);
+      
+      let insumosPool = activeEmployees.filter(e => 
+          insumosGroupIds.includes(e.id) && 
+          !weeklyAssignments[e.id][weekNumberForInsumos]
+      );
+
+      if (insumosPool.length > 0) {
+          const employeeForInsumos = insumosPool[generationCount % insumosPool.length];
+          weeklyAssignments[employeeForInsumos.id][weekNumberForInsumos] = 'Insumos';
+      }
     }
     
     // 1.3 Asignar Administrativo
-    const weekForAdmin = allWeeks[(generationCount + 2) % allWeeks.length]; // Different week
+    const weekForAdmin = allWeeks[(generationCount + 2) % allWeeks.length];
     const weekNumberForAdmin = getWeek(weekForAdmin);
     let adminPool = activeEmployees.filter(e => !weeklyAssignments[e.id][weekNumberForAdmin]);
 
@@ -167,45 +162,52 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         weeklyAssignments[employeeForAdmin.id][weekNumberForAdmin] = 'Administrativo';
     }
 
-
     // 2. Rellenar el resto de la semana
     allWeeks.forEach(weekStart => {
         const weekNumber = getWeek(weekStart);
         let weekPool = activeEmployees.filter(e => !weeklyAssignments[e.id][weekNumber]);
-        const shifts: ShiftType[] = ['Mañana', 'Mañana', 'Tarde', 'Tarde', 'Descanso'];
-
+        const shifts: ShiftType[] = ['Mañana', 'Mañana', 'Tarde', 'Tarde', 'Descanso', 'Descanso'];
+        
+        // Shuffle shifts for variety
+        for (let i = shifts.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shifts[i], shifts[j]] = [shifts[j], shifts[i]];
+        }
+        
         weekPool.forEach((emp, index) => {
-            weeklyAssignments[emp.id][weekNumber] = shifts[index % shifts.length];
+             weeklyAssignments[emp.id][weekNumber] = shifts[index % shifts.length];
         });
     });
 
-    // 3. Poblar el calendario con reglas de descanso estrictas
+    // 3. Poblar el calendario y aplicar reglas de descanso ESTRICTAS
     newSchedules.forEach(empSchedule => {
+        const employeeId = empSchedule.employeeId;
         empSchedule.schedule.forEach(daySchedule => {
-            const dayDate = new Date(year, month, daySchedule.day);
+            const day = daySchedule.day;
+            const dayDate = new Date(year, month, day);
             const weekNumber = getWeek(dayDate);
-            const dayOfWeek = dayDate.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+            const dayOfWeek = dayDate.getDay(); // 0: Dom, 1: Lun, ..., 6: Sab
 
-            const weeklyShift = weeklyAssignments[empSchedule.employeeId][weekNumber] || 'Descanso';
-
-            let dailyShift: ShiftType = weeklyShift;
+            const assignedShift = weeklyAssignments[employeeId]?.[weekNumber] || 'Descanso';
             
-            if (weeklyShift === 'Mañana' || weeklyShift === 'Tarde' || weeklyShift === 'Insumos') {
-                if (dayOfWeek === 0) { // Domingo
-                    dailyShift = 'Descanso';
-                }
-            } else if (weeklyShift === 'Noche' || weeklyShift === 'Administrativo') {
-                if (dayOfWeek === 0 || dayOfWeek === 6) { // Sábado o Domingo
-                    dailyShift = 'Descanso';
-                }
-            } else if (weeklyShift === 'Descanso') {
-                dailyShift = 'Descanso';
-            }
+            let finalShift: ShiftType = assignedShift;
 
-            daySchedule.shift = dailyShift;
+            // Regla 1: Noche y Administrativo descansan Sábado y Domingo
+            if (assignedShift === 'Noche' || assignedShift === 'Administrativo') {
+                if (dayOfWeek === 6 || dayOfWeek === 0) {
+                    finalShift = 'Descanso';
+                }
+            }
+            // Regla 2: Mañana, Tarde e Insumos descansan Domingo
+            else if (['Mañana', 'Tarde', 'Insumos'].includes(assignedShift)) {
+                if (dayOfWeek === 0) {
+                    finalShift = 'Descanso';
+                }
+            }
+            
+            daySchedule.shift = finalShift;
         });
     });
-
 
     setSchedules(newSchedules);
     setIsScheduleGenerated(true);
