@@ -104,14 +104,15 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const monthEndDate = endOfMonth(currentDate);
     
     let currentWeekStart = startOfWeek(monthStartDate, { weekStartsOn: 1 });
-    if (currentWeekStart > monthStartDate) {
+    if (currentWeekStart > monthStartDate && currentWeekStart.getDate() > 7) {
       currentWeekStart = addDays(currentWeekStart, -7);
     }
     
     const allWeeks = [];
-    while (currentWeekStart <= monthEndDate) {
-        allWeeks.push(currentWeekStart);
-        currentWeekStart = addDays(currentWeekStart, 7);
+    let tempDate = currentWeekStart;
+    while (tempDate <= monthEndDate) {
+        allWeeks.push(tempDate);
+        tempDate = addDays(tempDate, 7);
     }
     
     const monthlyNightAssignments: Record<string, boolean> = {};
@@ -137,7 +138,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
             
             for (let j = 0; j < count; j++) {
                 if (pool.length === 0) break;
-                 const employeeIndex = (weekOfYear + j) % pool.length;
+                 const employeeIndex = (weekOfYear + j + generationCount) % pool.length;
                  const employee = pool[employeeIndex];
                 if (!employee) continue;
 
@@ -149,7 +150,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
             }
         };
 
-        assignShift('Noche', 2, availableEmployees, monthlyNightAssignments);
+        assignShift('Noche', 2, undefined, monthlyNightAssignments);
         
         const includeInsumosAndAdmin = activeEmployees.length >= 8;
         if (includeInsumosAndAdmin) {
@@ -162,8 +163,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
           const adminPool = availableEmployees.filter(e => adminGroupIds.includes(e.id) && !monthlyAdminAssignments[e.id]);
           assignShift('Administrativo', 1, adminPool, monthlyAdminAssignments);
-        } else {
-          assignShift('Administrativo', 1, availableEmployees, monthlyAdminAssignments);
+        } else if (activeEmployees.length > 0) {
+          assignShift('Administrativo', 1, undefined, monthlyAdminAssignments);
         }
         
         const morningPool = availableEmployees.filter(emp => !lastWeekMorningAssignments.includes(emp.id));
@@ -180,7 +181,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         for (const dayDate of weekDays) {
             if (dayDate.getMonth() !== month) continue;
 
-            const dayOfWeek = dayDate.getDay(); 
+            const dayOfWeek = dayDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
             const dayOfMonth = dayDate.getDate();
 
             activeEmployees.forEach(emp => {
@@ -191,7 +192,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 
                 const isMañanaTardeInsumos = ['Mañana', 'Tarde', 'Insumos'].includes(weeklyShift);
                 const isNocheAdmin = ['Noche', 'Administrativo'].includes(weeklyShift);
-
+                
                 if (isMañanaTardeInsumos && dayOfWeek === 0) { // Sunday off
                    dailyShift = 'Descanso';
                 }
@@ -214,7 +215,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     setGenerationCount(prev => prev + 1);
     const key = getLocalStorageKey(currentDate);
     localStorage.setItem(key, JSON.stringify(newSchedules));
-  }, [currentDate, activeEmployees, allEmployees]);
+  }, [currentDate, activeEmployees, allEmployees, generationCount]);
 
 
   React.useEffect(() => {
@@ -258,11 +259,16 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         shift: 'Descanso' as ShiftType,
       })),
     }));
-    setSchedules(resetSchedules);
-    setIsScheduleGenerated(false);
-    setGenerationCount(0);
     
-  }, [activeEmployeeIds]);
+    // Do not reset the schedule if it's already generated from localStorage
+    const key = getLocalStorageKey(currentDate);
+    if (!localStorage.getItem(key)) {
+        setSchedules(resetSchedules);
+        setIsScheduleGenerated(false);
+        setGenerationCount(0);
+    }
+    
+  }, [activeEmployeeIds, currentDate]);
 
 
   React.useEffect(() => {
