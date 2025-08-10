@@ -16,6 +16,16 @@ import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 const ALL_SHIFT_TYPES: ShiftType[] = ["Mañana", "Tarde", "Noche", "Administrativo", "Insumos", "Descanso"]
 
@@ -39,6 +49,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
   const [activeEmployeeIds, setActiveEmployeeIds] = React.useState<Set<string>>(new Set(allEmployees.map(e => e.id)));
   const [isScheduleGenerated, setIsScheduleGenerated] = React.useState(false);
+  const [showConfirmationDialog, setShowConfirmationDialog] = React.useState(false);
+  const [generationCount, setGenerationCount] = React.useState(0);
 
   const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
   
@@ -91,29 +103,45 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     
     let currentWeekStart = startOfWeek(monthStartDate, { weekStartsOn: 1 });
 
+    let lastWeekNightAssignments: string[] = [];
+    let lastWeekInsumosAssignment: string | null = null;
+    let lastWeekMorningAssignments: string[] = [];
+    let lastWeekAfternoonAssignments: string[] = [];
+    let lastWeekAdminAssignment: string | null = null;
+    
+
+    const allWeeks = [];
+    while (currentWeekStart <= monthEndDate) {
+        allWeeks.push(currentWeekStart);
+        currentWeekStart = addDays(currentWeekStart, 7);
+    }
+    
     const monthlyNightAssignments: Record<string, boolean> = {};
     const monthlyInsumosAssignments: Record<string, boolean> = {};
-    let lastWeekAssignments: Record<string, ShiftType> = {};
 
-    while(currentWeekStart <= monthEndDate) {
-        const weekOfYear = getWeek(currentWeekStart, { weekStartsOn: 1 });
-        let employeesToAssign = [...activeEmployees];
+    for (const weekStart of allWeeks) {
+        const weekOfYear = getWeek(weekStart, { weekStartsOn: 1 });
+        let availableEmployees = [...activeEmployees];
         const weeklyAssignments: { [key: string]: ShiftType } = {};
 
         const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
-            if (employeesToAssign.length === 0) return;
-            let pool = customPool ? [...customPool] : [...employeesToAssign];
+            let pool = customPool ? [...customPool] : [...availableEmployees];
 
+            // Filter out employees who can't take this shift
             pool = pool.filter(emp => {
                 if(shift === 'Noche' && monthlyNightAssignments[emp.id]) return false;
                 if(shift === 'Insumos' && monthlyInsumosAssignments[emp.id]) return false;
-                if((shift === 'Mañana' || shift === 'Tarde') && lastWeekAssignments[emp.id] === shift) return false;
+                if(shift === 'Mañana' && lastWeekMorningAssignments.includes(emp.id)) return false;
+                if(shift === 'Tarde' && lastWeekAfternoonAssignments.includes(emp.id)) return false;
+                if(shift === 'Noche' && lastWeekNightAssignments.includes(emp.id)) return false;
+                if(shift === 'Administrativo' && lastWeekAdminAssignment === emp.id) return false;
+                if(shift === 'Insumos' && lastWeekInsumosAssignment === emp.id) return false;
                 return true;
             });
             
             for (let j = 0; j < count; j++) {
-                 if (pool.length === 0) break;
-                 // Deterministic but rotating selection
+                if (pool.length === 0) break;
+                 // Deterministic but rotating selection based on week number and employee index
                  const employeeIndex = (weekOfYear + j) % pool.length;
                  const employee = pool[employeeIndex];
 
@@ -121,17 +149,17 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                  if(shift === 'Noche') monthlyNightAssignments[employee.id] = true;
                  if(shift === 'Insumos') monthlyInsumosAssignments[employee.id] = true;
                  
-                 // Remove from pool and employeesToAssign
-                 pool.splice(employeeIndex, 1);
-                 employeesToAssign = employeesToAssign.filter(e => e.id !== employee.id);
+                 // Remove from availableEmployees for this week
+                 availableEmployees = availableEmployees.filter(e => e.id !== employee.id);
+                 pool.splice(employeeIndex, 1); // also remove from current pool
             }
         };
 
         const includeInsumos = activeEmployees.length >= 8;
         if (includeInsumos) {
           const insumosEligibleGroupIds = (month + 1) % 2 === 1 ? groupA_ids : groupB_ids;
-          const insumosPool = employeesToAssign.filter(e => insumosEligibleGroupIds.includes(e.id));
-          assignShift('Insumos', 1, insumosPool.length > 0 ? insumosPool : undefined);
+          const insumosPool = availableEmployees.filter(e => insumosEligibleGroupIds.includes(e.id));
+          assignShift('Insumos', 1, insumosPool);
         }
 
         assignShift('Noche', 2);
@@ -139,13 +167,19 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         assignShift('Mañana', 2);
         
         // Assign rest to Tarde
-        employeesToAssign.forEach(emp => {
+        [...availableEmployees].forEach(emp => {
            weeklyAssignments[emp.id] = 'Tarde';
+           availableEmployees = availableEmployees.filter(e => e.id !== emp.id);
         });
 
-        lastWeekAssignments = {...weeklyAssignments};
+        // Update last week assignments for next iteration's rotation logic
+        lastWeekNightAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Noche');
+        lastWeekInsumosAssignment = Object.keys(weeklyAssignments).find(k => weeklyAssignments[k] === 'Insumos') || null;
+        lastWeekMorningAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Mañana');
+        lastWeekAfternoonAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Tarde');
+        lastWeekAdminAssignment = Object.keys(weeklyAssignments).find(k => weeklyAssignments[k] === 'Administrativo') || null;
 
-        const weekDays = eachDayOfInterval({ start: currentWeekStart, end: endOfWeek(currentWeekStart, { weekStartsOn: 1 }) });
+        const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
         
         for (const dayDate of weekDays) {
             if (dayDate.getMonth() !== month) continue;
@@ -159,9 +193,11 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
                 let dailyShift: ShiftType = weeklyShift;
                 
-                // Strict rest day rules
-                const isWeekend = dayOfWeek === 6 || dayOfWeek === 0;
-                if ( (['Mañana', 'Tarde', 'Insumos'].includes(weeklyShift) && dayOfWeek === 0) || (['Noche', 'Administrativo'].includes(weeklyShift) && isWeekend) ) {
+                const isWeekend = dayOfWeek === 6 || dayOfWeek === 0; // Saturday or Sunday
+                if ( (['Mañana', 'Tarde', 'Insumos'].includes(weeklyShift) && dayOfWeek === 0) ) { // Sunday off
+                   dailyShift = 'Descanso';
+                }
+                if ( (['Noche', 'Administrativo'].includes(weeklyShift) && isWeekend) ) { // Sat & Sun off
                    dailyShift = 'Descanso';
                 }
                 
@@ -174,10 +210,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 }
             });
         }
-        currentWeekStart = addDays(currentWeekStart, 7);
     }
     setSchedules(newSchedules);
     setIsScheduleGenerated(true);
+    setGenerationCount(prev => prev + 1);
   }, [currentDate, activeEmployees, allEmployees]);
 
 
@@ -192,7 +228,16 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     }));
     setSchedules(resetSchedules);
     setIsScheduleGenerated(false); // Reset when month or active employees change
+    setGenerationCount(0); // Reset generation count on month/employee change
   }, [currentDate, activeEmployees]);
+
+  const handleGenerateClick = () => {
+    if (isScheduleGenerated) {
+      setShowConfirmationDialog(true);
+    } else {
+      generateSchedule();
+    }
+  };
 
 
   const filteredEmployees = selectedEmployeeId === "all"
@@ -202,6 +247,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const shiftTypesToDisplay = activeEmployees.length >= 8 ? ALL_SHIFT_TYPES : ALL_SHIFT_TYPES.filter(s => s !== 'Insumos');
 
   return (
+    <>
     <Card className="w-full shadow-lg">
       <CardHeader>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -218,7 +264,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
-             <Button onClick={generateSchedule} variant="outline" disabled={isScheduleGenerated}>
+             <Button onClick={handleGenerateClick}>
               <CalendarIcon className="mr-2 h-4 w-4" />
               Generar Horario
             </Button>
@@ -335,5 +381,24 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         )}
       </CardContent>
     </Card>
+    <AlertDialog open={showConfirmationDialog} onOpenChange={setShowConfirmationDialog}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Confirmación</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Ya has generado el horario para este mes. ¿Estás seguro de que quieres volver a generarlo?
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                {generationCount < 5 && (
+                  <AlertDialogAction onClick={generateSchedule}>
+                    Volver a generar ({5 - generationCount} restantes)
+                  </AlertDialogAction>
+                )}
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
