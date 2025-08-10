@@ -172,10 +172,9 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         lastWeekMorningAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Mañana');
 
         const afternoonPool = availableEmployees.filter(emp => !lastWeekAfternoonAssignments.includes(emp.id));
-        assignShift('Tarde', availableEmployees.length, afternoonPool);
+        assignShift('Tarde', 2, afternoonPool);
         lastWeekAfternoonAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Tarde');
         
-        // Ensure any remaining available employees are assigned a default shift (like 'Tarde' or 'Descanso')
         availableEmployees.forEach(emp => {
             if (!weeklyAssignments[emp.id]) {
                 weeklyAssignments[emp.id] = 'Descanso'; 
@@ -258,17 +257,34 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
      localStorage.setItem('activeEmployeeIds', JSON.stringify(Array.from(activeEmployeeIds)));
      
     const daysInMonth = getDaysInMonth(currentDate);
-    const resetSchedules = activeEmployees.map(emp => ({
-      employeeId: emp.id,
-      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
-        day: i + 1,
-        shift: 'Descanso' as ShiftType,
-      })),
-    }));
     
-    // Do not reset the schedule if it's already generated from localStorage
     const key = getLocalStorageKey(currentDate);
-    if (!localStorage.getItem(key)) {
+    const savedSchedules = localStorage.getItem(key);
+    
+    if (savedSchedules) {
+        const parsedSchedules = JSON.parse(savedSchedules);
+        const activeSchedules = parsedSchedules.filter((s: EmployeeSchedule) => activeEmployeeIds.has(s.employeeId));
+        
+        const newEmployeeSchedules = activeEmployees
+            .filter(emp => !activeSchedules.some((s: EmployeeSchedule) => s.employeeId === emp.id))
+            .map(emp => ({
+                employeeId: emp.id,
+                schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+                    day: i + 1,
+                    shift: 'Descanso' as ShiftType,
+                })),
+            }));
+
+        setSchedules([...activeSchedules, ...newEmployeeSchedules]);
+
+    } else {
+        const resetSchedules = activeEmployees.map(emp => ({
+            employeeId: emp.id,
+            schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+                day: i + 1,
+                shift: 'Descanso' as ShiftType,
+            })),
+        }));
         setSchedules(resetSchedules);
         setIsScheduleGenerated(false);
         setGenerationCount(0);
