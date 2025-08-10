@@ -82,7 +82,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       return;
     }
     
-    // Si no hay 8 empleados activos, no se puede generar el horario
     if (activeEmployees.length < 8) {
       const resetSchedules = activeEmployees.map(emp => ({
         employeeId: emp.id,
@@ -97,14 +96,18 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
     const newSchedules: EmployeeSchedule[] = activeEmployees.map(emp => ({
       employeeId: emp.id,
-      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
-        day: i + 1,
-        shift: 'Descanso',
-      })),
+      schedule: Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, shift: 'Descanso' })),
     }));
-
+    
     const groupA_ids = allEmployees.slice(0, 4).map(e => e.id);
     const groupB_ids = allEmployees.slice(4, 8).map(e => e.id);
+
+    const nightPairs = [
+      [allEmployees[0].id, allEmployees[1].id],
+      [allEmployees[2].id, allEmployees[3].id],
+      [allEmployees[4].id, allEmployees[5].id],
+      [allEmployees[6].id, allEmployees[7].id],
+    ];
 
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonth = eachDayOfInterval({
@@ -118,83 +121,82 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         return acc;
     }, [] as { weekNum: number; start: Date; end: Date }[]);
 
-    const monthlyAssignments: Record<string, ShiftType> = {};
-    let nightPairs = [
-      [allEmployees[0].id, allEmployees[1].id],
-      [allEmployees[2].id, allEmployees[3].id],
-      [allEmployees[4].id, allEmployees[5].id],
-      [allEmployees[6].id, allEmployees[7].id],
-    ];
-
-    // Shuffle night pairs for randomness
-    for (let i = nightPairs.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [nightPairs[i], nightPairs[j]] = [nightPairs[j], nightPairs[i]];
-    }
-
+    const weeklyAssignments: { [weekIndex: number]: { [employeeId: string]: ShiftType } } = {};
+    const lastWeekAssignments: { [employeeId: string]: ShiftType } = {};
+    
     weeksInMonth.forEach((week, weekIndex) => {
-      const weeklyAssignments: Record<string, ShiftType> = {};
+      weeklyAssignments[weekIndex] = {};
       let availableForWeek = [...activeEmployees.map(e => e.id)];
-
-      // Assign night shift
+      
+      // 1. Assign Night shift (2 employees per week)
       if (weekIndex < nightPairs.length) {
         const pair = nightPairs[weekIndex];
-        weeklyAssignments[pair[0]] = 'Noche';
-        weeklyAssignments[pair[1]] = 'Noche';
+        weeklyAssignments[weekIndex][pair[0]] = 'Noche';
+        weeklyAssignments[weekIndex][pair[1]] = 'Noche';
         availableForWeek = availableForWeek.filter(id => !pair.includes(id));
       }
 
-      // Assign Insumos
+      // 2. Assign Insumos shift (1 employee per week from rotating group)
       const insumosPoolIds = (month + 1) % 2 !== 0 ? groupA_ids : groupB_ids;
       const insumosEligible = availableForWeek.filter(id => insumosPoolIds.includes(id));
-      if (insumosEligible.length > 0) {
+      if(insumosEligible.length > 0) {
         const insumosEmployeeId = insumosEligible[weekIndex % insumosEligible.length];
-        weeklyAssignments[insumosEmployeeId] = 'Insumos';
+        weeklyAssignments[weekIndex][insumosEmployeeId] = 'Insumos';
         availableForWeek = availableForWeek.filter(id => id !== insumosEmployeeId);
       }
       
-      // Assign Administrativo
-      if(availableForWeek.length > 0) {
-        const adminEmployeeId = availableForWeek[0];
-        weeklyAssignments[adminEmployeeId] = 'Administrativo';
-        availableForWeek = availableForWeek.filter(id => id !== adminEmployeeId);
-      }
-      
-      // Assign Mañana y Tarde
-      const remainingForDayShifts = availableForWeek;
-      const half = Math.ceil(remainingForDayShifts.length / 2);
-      const mañanaEmployees = remainingForDayShifts.slice(0, half);
-      const tardeEmployees = remainingForDayShifts.slice(half);
+      // 3. Assign Mañana, Tarde, Administrativo
+      const remainingShifts: ShiftType[] = ['Mañana', 'Tarde', 'Administrativo'];
+      availableForWeek.forEach((employeeId, index) => {
+          let assigned = false;
+          let potentialShifts = [...remainingShifts];
+          while(potentialShifts.length > 0 && !assigned) {
+              const shiftIndex = Math.floor(Math.random() * potentialShifts.length);
+              const shiftToAssign = potentialShifts[shiftIndex];
 
-      mañanaEmployees.forEach(id => weeklyAssignments[id] = 'Mañana');
-      tardeEmployees.forEach(id => weeklyAssignments[id] = 'Tarde');
-      
-      // Apply weekly shifts to daily schedule
+              if (lastWeekAssignments[employeeId] !== shiftToAssign) {
+                  weeklyAssignments[weekIndex][employeeId] = shiftToAssign;
+                  lastWeekAssignments[employeeId] = shiftToAssign;
+                  assigned = true;
+              } else {
+                  potentialShifts.splice(shiftIndex, 1);
+              }
+          }
+          if (!assigned) { // Fallback if no shift can be assigned without repeating
+              const fallbackShift = remainingShifts[index % remainingShifts.length];
+              weeklyAssignments[weekIndex][employeeId] = fallbackShift;
+              lastWeekAssignments[employeeId] = fallbackShift;
+          }
+      });
+    });
+
+    // Apply weekly assignments to daily schedule with strict rest day rules
+    weeksInMonth.forEach((week, weekIndex) => {
       eachDayOfInterval({ start: week.start, end: week.end }).forEach(dayDate => {
         if (dayDate.getMonth() !== month) return;
 
         const dayOfMonth = dayDate.getDate();
-        const dayOfWeek = dayDate.getDay(); // 0 = Sunday
+        const dayOfWeek = dayDate.getDay(); // Sunday is 0, Monday is 1, etc.
 
         activeEmployees.forEach(emp => {
-          const weeklyShift = weeklyAssignments[emp.id];
+          const weeklyShift = weeklyAssignments[weekIndex]?.[emp.id];
           if (!weeklyShift) return;
 
           let dailyShift: ShiftType = weeklyShift;
           
-          if ((weeklyShift === 'Mañana' || weeklyShift === 'Tarde' || weeklyShift === 'Insumos') && dayOfWeek === 0) {
+          if ((weeklyShift === 'Mañana' || weeklyShift === 'Tarde' || weeklyShift === 'Insumos') && dayOfWeek === 0) { // Sunday
               dailyShift = 'Descanso';
           }
-          if ((weeklyShift === 'Noche' || weeklyShift === 'Administrativo') && (dayOfWeek === 6 || dayOfWeek === 0)) {
+          if ((weeklyShift === 'Noche' || weeklyShift === 'Administrativo') && (dayOfWeek === 6 || dayOfWeek === 0)) { // Saturday or Sunday
               dailyShift = 'Descanso';
           }
 
           const empSchedule = newSchedules.find(s => s.employeeId === emp.id);
           if (empSchedule) {
-              const dayIndex = empSchedule.schedule.findIndex(s => s.day === dayOfMonth);
-              if (dayIndex !== -1) {
-                  empSchedule.schedule[dayIndex].shift = dailyShift;
-              }
+            const dayIndex = empSchedule.schedule.findIndex(s => s.day === dayOfMonth);
+            if (dayIndex !== -1) {
+              empSchedule.schedule[dayIndex].shift = dailyShift;
+            }
           }
         });
       });
