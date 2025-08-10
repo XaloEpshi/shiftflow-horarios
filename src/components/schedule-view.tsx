@@ -52,20 +52,23 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const [showConfirmationDialog, setShowConfirmationDialog] = React.useState(false);
   const [generationCount, setGenerationCount] = React.useState(0);
 
+  const getLocalStorageKey = (date: Date) => `schedule-${format(date, 'yyyy-MM')}`;
+
   const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
   
   const handleShiftChange = (employeeId: string, day: number, newShift: ShiftType) => {
-    setSchedules(prevSchedules =>
-      prevSchedules.map(empSchedule => {
-        if (empSchedule.employeeId === employeeId) {
-          const newDailySchedules = empSchedule.schedule.map(d =>
-            d.day === day ? { ...d, shift: newShift } : d
-          )
-          return { ...empSchedule, schedule: newDailySchedules }
-        }
-        return empSchedule
-      })
-    )
+    const newSchedules = schedules.map(empSchedule => {
+      if (empSchedule.employeeId === employeeId) {
+        const newDailySchedules = empSchedule.schedule.map(d =>
+          d.day === day ? { ...d, shift: newShift } : d
+        )
+        return { ...empSchedule, schedule: newDailySchedules }
+      }
+      return empSchedule
+    });
+    setSchedules(newSchedules);
+    const key = getLocalStorageKey(currentDate);
+    localStorage.setItem(key, JSON.stringify(newSchedules));
   }
 
   const hasConflict = (employeeSchedule: { day: number; shift: ShiftType }[], dayIndex: number): boolean => {
@@ -94,7 +97,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         })),
     }));
     
-    // Group logic remains for insumos shift
     const groupA_ids = allEmployees.slice(0, 4).map(e => e.id);
     const groupB_ids = allEmployees.slice(4, 8).map(e => e.id);
 
@@ -102,14 +104,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const monthEndDate = endOfMonth(currentDate);
     
     let currentWeekStart = startOfWeek(monthStartDate, { weekStartsOn: 1 });
-
-    let lastWeekNightAssignments: string[] = [];
-    let lastWeekInsumosAssignment: string | null = null;
-    let lastWeekMorningAssignments: string[] = [];
-    let lastWeekAfternoonAssignments: string[] = [];
-    let lastWeekAdminAssignment: string | null = null;
+    if (currentWeekStart > monthStartDate) {
+      currentWeekStart = addDays(currentWeekStart, -7);
+    }
     
-
     const allWeeks = [];
     while (currentWeekStart <= monthEndDate) {
         allWeeks.push(currentWeekStart);
@@ -118,73 +116,63 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     
     const monthlyNightAssignments: Record<string, boolean> = {};
     const monthlyInsumosAssignments: Record<string, boolean> = {};
-
+    let lastWeekMorningAssignments: string[] = [];
+    let lastWeekAfternoonAssignments: string[] = [];
+    
     for (const weekStart of allWeeks) {
         const weekOfYear = getWeek(weekStart, { weekStartsOn: 1 });
         let availableEmployees = [...activeEmployees];
         const weeklyAssignments: { [key: string]: ShiftType } = {};
 
-        const assignShift = (shift: ShiftType, count: number, customPool?: Employee[]) => {
+        const assignShift = (shift: ShiftType, count: number, customPool?: Employee[], assignmentMemory?: Record<string, boolean>) => {
             let pool = customPool ? [...customPool] : [...availableEmployees];
-
-            // Filter out employees who can't take this shift
+            
             pool = pool.filter(emp => {
-                if(shift === 'Noche' && monthlyNightAssignments[emp.id]) return false;
-                if(shift === 'Insumos' && monthlyInsumosAssignments[emp.id]) return false;
+                if(assignmentMemory && assignmentMemory[emp.id]) return false;
                 if(shift === 'Mañana' && lastWeekMorningAssignments.includes(emp.id)) return false;
                 if(shift === 'Tarde' && lastWeekAfternoonAssignments.includes(emp.id)) return false;
-                if(shift === 'Noche' && lastWeekNightAssignments.includes(emp.id)) return false;
-                if(shift === 'Administrativo' && lastWeekAdminAssignment === emp.id) return false;
-                if(shift === 'Insumos' && lastWeekInsumosAssignment === emp.id) return false;
-                return true;
+                return availableEmployees.some(ae => ae.id === emp.id);
             });
             
             for (let j = 0; j < count; j++) {
                 if (pool.length === 0) break;
-                 // Deterministic but rotating selection based on week number and employee index
                  const employeeIndex = (weekOfYear + j) % pool.length;
                  const employee = pool[employeeIndex];
 
                  weeklyAssignments[employee.id] = shift;
-                 if(shift === 'Noche') monthlyNightAssignments[employee.id] = true;
-                 if(shift === 'Insumos') monthlyInsumosAssignments[employee.id] = true;
+                 if(assignmentMemory) assignmentMemory[employee.id] = true;
                  
-                 // Remove from availableEmployees for this week
                  availableEmployees = availableEmployees.filter(e => e.id !== employee.id);
-                 pool.splice(employeeIndex, 1); // also remove from current pool
+                 pool.splice(employeeIndex, 1);
             }
         };
 
+        assignShift('Noche', 2, availableEmployees, monthlyNightAssignments);
+        
         const includeInsumos = activeEmployees.length >= 8;
         if (includeInsumos) {
           const insumosEligibleGroupIds = (month + 1) % 2 === 1 ? groupA_ids : groupB_ids;
           const insumosPool = availableEmployees.filter(e => insumosEligibleGroupIds.includes(e.id));
-          assignShift('Insumos', 1, insumosPool);
+          assignShift('Insumos', 1, insumosPool, monthlyInsumosAssignments);
         }
-
-        assignShift('Noche', 2);
-        assignShift('Administrativo', 1);
-        assignShift('Mañana', 2);
         
-        // Assign rest to Tarde
-        [...availableEmployees].forEach(emp => {
+        assignShift('Administrativo', 1, availableEmployees);
+        assignShift('Mañana', 2, availableEmployees);
+
+        lastWeekMorningAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Mañana');
+        
+        availableEmployees.forEach(emp => {
            weeklyAssignments[emp.id] = 'Tarde';
-           availableEmployees = availableEmployees.filter(e => e.id !== emp.id);
         });
 
-        // Update last week assignments for next iteration's rotation logic
-        lastWeekNightAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Noche');
-        lastWeekInsumosAssignment = Object.keys(weeklyAssignments).find(k => weeklyAssignments[k] === 'Insumos') || null;
-        lastWeekMorningAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Mañana');
         lastWeekAfternoonAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Tarde');
-        lastWeekAdminAssignment = Object.keys(weeklyAssignments).find(k => weeklyAssignments[k] === 'Administrativo') || null;
 
         const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
         
         for (const dayDate of weekDays) {
             if (dayDate.getMonth() !== month) continue;
 
-            const dayOfWeek = dayDate.getDay(); // Sunday is 0, Monday is 1...
+            const dayOfWeek = dayDate.getDay(); 
             const dayOfMonth = dayDate.getDate();
 
             activeEmployees.forEach(emp => {
@@ -193,11 +181,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
                 let dailyShift: ShiftType = weeklyShift;
                 
-                const isWeekend = dayOfWeek === 6 || dayOfWeek === 0; // Saturday or Sunday
                 if ( (['Mañana', 'Tarde', 'Insumos'].includes(weeklyShift) && dayOfWeek === 0) ) { // Sunday off
                    dailyShift = 'Descanso';
                 }
-                if ( (['Noche', 'Administrativo'].includes(weeklyShift) && isWeekend) ) { // Sat & Sun off
+                if ( (['Noche', 'Administrativo'].includes(weeklyShift) && (dayOfWeek === 6 || dayOfWeek === 0)) ) { // Sat & Sun off
                    dailyShift = 'Descanso';
                 }
                 
@@ -214,22 +201,61 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     setSchedules(newSchedules);
     setIsScheduleGenerated(true);
     setGenerationCount(prev => prev + 1);
+    const key = getLocalStorageKey(currentDate);
+    localStorage.setItem(key, JSON.stringify(newSchedules));
   }, [currentDate, activeEmployees, allEmployees]);
 
 
   React.useEffect(() => {
-    const daysInMonth = getDaysInMonth(currentDate);
-    const resetSchedules = activeEmployees.map(emp => ({
-      employeeId: emp.id,
-      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
-        day: i + 1,
-        shift: 'Descanso' as ShiftType,
-      })),
-    }));
-    setSchedules(resetSchedules);
-    setIsScheduleGenerated(false); // Reset when month or active employees change
-    setGenerationCount(0); // Reset generation count on month/employee change
-  }, [currentDate, activeEmployees]);
+    const key = getLocalStorageKey(currentDate);
+    const savedSchedules = localStorage.getItem(key);
+
+    if (savedSchedules) {
+      setSchedules(JSON.parse(savedSchedules));
+      setIsScheduleGenerated(true);
+      setGenerationCount(1); 
+    } else {
+      const daysInMonth = getDaysInMonth(currentDate);
+      const resetSchedules = activeEmployees.map(emp => ({
+        employeeId: emp.id,
+        schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+          day: i + 1,
+          shift: 'Descanso' as ShiftType,
+        })),
+      }));
+      setSchedules(resetSchedules);
+      setIsScheduleGenerated(false); 
+      setGenerationCount(0);
+    }
+    
+    // Also update active employees based on localStorage
+    const savedActiveIds = localStorage.getItem('activeEmployeeIds');
+    if (savedActiveIds) {
+      setActiveEmployeeIds(new Set(JSON.parse(savedActiveIds)));
+    }
+
+  }, [currentDate]);
+
+  React.useEffect(() => {
+     localStorage.setItem('activeEmployeeIds', JSON.stringify(Array.from(activeEmployeeIds)));
+     
+     const key = getLocalStorageKey(currentDate);
+     const savedSchedules = localStorage.getItem(key);
+     if (!savedSchedules) {
+        const daysInMonth = getDaysInMonth(currentDate);
+        const resetSchedules = activeEmployees.map(emp => ({
+          employeeId: emp.id,
+          schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+            day: i + 1,
+            shift: 'Descanso' as ShiftType,
+          })),
+        }));
+        setSchedules(resetSchedules);
+        setIsScheduleGenerated(false);
+        setGenerationCount(0);
+     }
+  }, [activeEmployeeIds, currentDate]);
+
 
   const handleGenerateClick = () => {
     if (isScheduleGenerated) {
@@ -402,3 +428,5 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </>
   )
 }
+
+    
