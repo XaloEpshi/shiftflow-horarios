@@ -174,14 +174,20 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         const afternoonPool = availableEmployees.filter(emp => !lastWeekAfternoonAssignments.includes(emp.id));
         assignShift('Tarde', availableEmployees.length, afternoonPool);
         lastWeekAfternoonAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Tarde');
-
+        
+        // Ensure any remaining available employees are assigned a default shift (like 'Tarde' or 'Descanso')
+        availableEmployees.forEach(emp => {
+            if (!weeklyAssignments[emp.id]) {
+                weeklyAssignments[emp.id] = 'Descanso'; 
+            }
+        });
 
         const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
         
         for (const dayDate of weekDays) {
             if (dayDate.getMonth() !== month) continue;
 
-            const dayOfWeek = dayDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+            const dayOfWeek = dayDate.getDay(); 
             const dayOfMonth = dayDate.getDate();
 
             activeEmployees.forEach(emp => {
@@ -193,10 +199,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 const isMañanaTardeInsumos = ['Mañana', 'Tarde', 'Insumos'].includes(weeklyShift);
                 const isNocheAdmin = ['Noche', 'Administrativo'].includes(weeklyShift);
                 
-                if (isMañanaTardeInsumos && dayOfWeek === 0) { // Sunday off
+                if (isMañanaTardeInsumos && dayOfWeek === 0) {
                    dailyShift = 'Descanso';
                 }
-                if (isNocheAdmin && (dayOfWeek === 6 || dayOfWeek === 0)) { // Sat & Sun off
+                if (isNocheAdmin && (dayOfWeek === 6 || dayOfWeek === 0)) {
                    dailyShift = 'Descanso';
                 }
                 
