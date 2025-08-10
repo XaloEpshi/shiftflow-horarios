@@ -3,7 +3,7 @@
 import * as React from "react"
 import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeeksInMonth, startOfWeek, addDays, eachDayOfInterval, endOfWeek, getWeek, endOfMonth } from "date-fns"
 import { es } from "date-fns/locale"
-import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings } from "lucide-react"
+import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, FileSpreadsheet } from "lucide-react"
 
 import type { Employee, EmployeeSchedule, ShiftType } from "@/types"
 import { cn } from "@/lib/utils"
@@ -139,6 +139,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 if (pool.length === 0) break;
                  const employeeIndex = (weekOfYear + j) % pool.length;
                  const employee = pool[employeeIndex];
+                if (!employee) continue;
 
                  weeklyAssignments[employee.id] = shift;
                  if(assignmentMemory) assignmentMemory[employee.id] = true;
@@ -156,24 +157,23 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
           const insumosGroupIds = isOddMonth ? groupA_ids : groupB_ids;
           const adminGroupIds = isOddMonth ? groupB_ids : groupA_ids;
           
-          const insumosPool = availableEmployees.filter(e => insumosGroupIds.includes(e.id));
+          const insumosPool = availableEmployees.filter(e => insumosGroupIds.includes(e.id) && !monthlyInsumosAssignments[e.id]);
           assignShift('Insumos', 1, insumosPool, monthlyInsumosAssignments);
 
-          const adminPool = availableEmployees.filter(e => adminGroupIds.includes(e.id));
+          const adminPool = availableEmployees.filter(e => adminGroupIds.includes(e.id) && !monthlyAdminAssignments[e.id]);
           assignShift('Administrativo', 1, adminPool, monthlyAdminAssignments);
         } else {
-          assignShift('Administrativo', 1, availableEmployees);
+          assignShift('Administrativo', 1, availableEmployees, monthlyAdminAssignments);
         }
         
-        assignShift('Mañana', 2, availableEmployees);
-
+        const morningPool = availableEmployees.filter(emp => !lastWeekMorningAssignments.includes(emp.id));
+        assignShift('Mañana', 2, morningPool);
         lastWeekMorningAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Mañana');
-        
-        availableEmployees.forEach(emp => {
-           weeklyAssignments[emp.id] = 'Tarde';
-        });
 
+        const afternoonPool = availableEmployees.filter(emp => !lastWeekAfternoonAssignments.includes(emp.id));
+        assignShift('Tarde', availableEmployees.length, afternoonPool);
         lastWeekAfternoonAssignments = Object.keys(weeklyAssignments).filter(k => weeklyAssignments[k] === 'Tarde');
+
 
         const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 1 }) });
         
@@ -224,7 +224,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     if (savedSchedules) {
       setSchedules(JSON.parse(savedSchedules));
       setIsScheduleGenerated(true);
-      setGenerationCount(1); 
+      const savedCount = localStorage.getItem(`generationCount-${format(currentDate, 'yyyy-MM')}`);
+      setGenerationCount(savedCount ? parseInt(savedCount, 10) : 1);
     } else {
       const daysInMonth = getDaysInMonth(currentDate);
       const resetSchedules = activeEmployees.map(emp => ({
@@ -239,7 +240,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       setGenerationCount(0);
     }
     
-    // Also update active employees based on localStorage
     const savedActiveIds = localStorage.getItem('activeEmployeeIds');
     if (savedActiveIds) {
       setActiveEmployeeIds(new Set(JSON.parse(savedActiveIds)));
@@ -250,22 +250,25 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   React.useEffect(() => {
      localStorage.setItem('activeEmployeeIds', JSON.stringify(Array.from(activeEmployeeIds)));
      
-     const key = getLocalStorageKey(currentDate);
-     const savedSchedules = localStorage.getItem(key);
-     if (!savedSchedules) {
-        const daysInMonth = getDaysInMonth(currentDate);
-        const resetSchedules = activeEmployees.map(emp => ({
-          employeeId: emp.id,
-          schedule: Array.from({ length: daysInMonth }, (_, i) => ({
-            day: i + 1,
-            shift: 'Descanso' as ShiftType,
-          })),
-        }));
-        setSchedules(resetSchedules);
-        setIsScheduleGenerated(false);
-        setGenerationCount(0);
-     }
-  }, [activeEmployeeIds, currentDate]);
+    const daysInMonth = getDaysInMonth(currentDate);
+    const resetSchedules = activeEmployees.map(emp => ({
+      employeeId: emp.id,
+      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+        day: i + 1,
+        shift: 'Descanso' as ShiftType,
+      })),
+    }));
+    setSchedules(resetSchedules);
+    setIsScheduleGenerated(false);
+    setGenerationCount(0);
+    
+  }, [activeEmployeeIds]);
+
+
+  React.useEffect(() => {
+    const key = `generationCount-${format(currentDate, 'yyyy-MM')}`;
+    localStorage.setItem(key, generationCount.toString());
+  }, [generationCount, currentDate]);
 
 
   const handleGenerateClick = () => {
@@ -275,6 +278,35 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       generateSchedule();
     }
   };
+
+ const exportToCsv = () => {
+    const daysInMonth = getDaysInMonth(currentDate);
+    const headers = ['Empleado', ...Array.from({ length: daysInMonth }, (_, i) => (i + 1).toString())];
+    
+    const rows = filteredEmployees.map(employee => {
+      const empSchedule = schedules.find(s => s.employeeId === employee.id);
+      if (!empSchedule) return [employee.name];
+      
+      const shifts = Array.from({ length: daysInMonth }, (_, i) => {
+        const daySchedule = empSchedule.schedule.find(s => s.day === i + 1);
+        return daySchedule ? daySchedule.shift : 'Descanso';
+      });
+      
+      return [employee.name, ...shifts];
+    });
+
+    let csvContent = "data:text/csv;charset=utf-8," 
+        + [headers.join(','), ...rows.map(e => e.join(','))].join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    const monthName = format(currentDate, "MMMM-yyyy", { locale: es });
+    link.setAttribute("download", `horario-${monthName}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
 
 
   const filteredEmployees = selectedEmployeeId === "all"
@@ -304,6 +336,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
              <Button onClick={handleGenerateClick}>
               <CalendarIcon className="mr-2 h-4 w-4" />
               Generar Horario
+            </Button>
+            <Button variant="outline" onClick={exportToCsv} disabled={!isScheduleGenerated}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Exportar a CSV
             </Button>
             <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
               <SelectTrigger className="w-full sm:w-[200px]">
@@ -404,7 +440,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
             </TableBody>
           </Table>
         </div>
-         {selectedEmployeeId !== 'all' && (
+         {selectedEmployeeId !== 'all' && isScheduleGenerated && (
           <div className="p-4 mt-4 border rounded-lg bg-muted/50">
             <h4 className="mb-2 font-bold">Resumen de Turnos:</h4>
             <div className="flex flex-wrap gap-2">
@@ -428,13 +464,15 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
             </AlertDialogHeader>
             <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                {generationCount < 5 && (
+                {generationCount < 5 ? (
                   <AlertDialogAction onClick={() => {
                       generateSchedule();
                       setShowConfirmationDialog(false);
                   }}>
                     Volver a generar ({5 - generationCount} restantes)
                   </AlertDialogAction>
+                ) : (
+                  <Button disabled>Límite de regeneraciones alcanzado</Button>
                 )}
             </AlertDialogFooter>
         </AlertDialogContent>
