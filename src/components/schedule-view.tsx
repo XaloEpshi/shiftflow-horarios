@@ -94,9 +94,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     }));
   
     const monthStartDate = startOfMonth(currentDate);
-    // Use getWeeksInMonth, but be careful with months that start late in a week
-    const weeksInMonthObject = eachDayOfInterval({ start: monthStartDate, end: endOfWeek(monthStartDate, {weekStartsOn: 1}) })
-        .filter((d, i, arr) => i === 0 || getWeek(d, {weekStartsOn: 1}) !== getWeek(arr[i-1], {weekStartsOn: 1}));
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
 
 
@@ -165,8 +162,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         }
       }
   
-      // 2. Asignar Noche (una persona por semana)
-      assignShift("Noche", 1);
+      // 2. Asignar Noche (dos personas por semana)
+      assignShift("Noche", 2);
       
       // 3. Asignar Administrativo (una persona por semana)
       assignShift("Administrativo", 1);
@@ -224,7 +221,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     if(force) {
       setRegenerationCount(prev => prev + 1);
     }
-  }, [currentDate, activeEmployees, allEmployees]);
+  }, [currentDate, activeEmployees]);
   
   React.useEffect(() => {
     const storageKey = getStorageKey(currentDate);
