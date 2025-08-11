@@ -141,8 +141,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
         pool = pool.filter((emp) => lastWeekAssignments[emp.id] !== shift);
         
-        if (pool.length === 0 && customPool === undefined) {
-             pool = shuffleArray([...availableEmployeesForWeek]);
+        if (pool.length === 0) {
+             return; // Si no hay empleados disponibles, no hacer nada
         }
 
         for (let j = 0; j < pool.length; j++) {
