@@ -45,6 +45,20 @@ interface ScheduleViewProps {
   initialScheduleData: EmployeeSchedule[]
 }
 
+const INSOMOS_ROTATION_ORDER = [
+  "1", "2", "4", "3", "7", "8", "5", "6"
+];
+
+const shuffleArray = <T>(array: T[]): T[] => {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+};
+
+
 export function ScheduleView({ employees: allEmployees, initialScheduleData }: ScheduleViewProps) {
   const [currentDate, setCurrentDate] = React.useState(startOfMonth(new Date()))
   const [schedules, setSchedules] = React.useState<EmployeeSchedule[]>(initialScheduleData)
@@ -77,7 +91,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const month = currentDate.getMonth();
     const employees = activeEmployees;
     if (employees.length === 0) return;
-    
+
     const daysInMonth = getDaysInMonth(currentDate);
 
     const newSchedules: EmployeeSchedule[] = employees.map((emp) => ({
@@ -114,53 +128,56 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         count: number,
         customPool?: Employee[]
       ) => {
-        let pool = customPool ? [...customPool] : [...availableEmployeesForWeek];
+        let pool = customPool ? [...customPool] : shuffleArray([...availableEmployeesForWeek]);
         let assignedCount = 0;
 
         pool = pool.filter((emp) => lastWeekAssignments[emp.id] !== shift);
         
-        // Si el pool se vacía por el filtro, lo reseteamos para asegurar la asignación si no es un pool customizado
-        if (pool.length < count && customPool === undefined) {
-            pool = [...availableEmployeesForWeek];
+        if (pool.length === 0) {
+            // Si el pool se vacía por el filtro, lo reseteamos para asegurar la asignación si no es un pool customizado
+            if (customPool === undefined) {
+                pool = shuffleArray([...availableEmployeesForWeek]);
+            } else {
+                return; // No hay empleados disponibles en el pool customizado
+            }
         }
 
-        if (pool.length === 0) return;
+        for (let j = 0; j < pool.length; j++) {
+          if (assignedCount >= count) break;
+          const employee = pool[j];
 
-        for (let j = 0; j < count; j++) {
-            if (pool.length === 0) break; // Salir si no hay más empleados en el pool
-            const employeeIndex = (weekOfYear + j + assignedCount) % pool.length;
-            const employee = pool[employeeIndex];
-
-            if (availableEmployeesForWeek.some((e) => e.id === employee.id)) {
-                weeklyAssignments[employee.id] = shift;
-                availableEmployeesForWeek = availableEmployeesForWeek.filter(
-                    (e) => e.id !== employee.id
-                );
-                pool.splice(employeeIndex, 1);
-                assignedCount++;
-            } else {
-              // Si el empleado seleccionado ya no está disponible, intentamos con el siguiente
-              // y ajustamos el contador para volver a intentarlo.
-              count++; 
-            }
+          if (availableEmployeesForWeek.some((e) => e.id === employee.id)) {
+            weeklyAssignments[employee.id] = shift;
+            availableEmployeesForWeek = availableEmployeesForWeek.filter(
+              (e) => e.id !== employee.id
+            );
+            assignedCount++;
+          }
         }
       };
 
-      const insumosEmployeeIndex = (weekOfYear - 1) % employees.length;
-      assignShift("Insumos", 1, [employees[insumosEmployeeIndex]]);
+      // 1. Asignar Insumos según el orden fijo
+      const insumosEmployeeId = INSOMOS_ROTATION_ORDER[(weekOfYear - 1) % INSOMOS_ROTATION_ORDER.length];
+      const insumosEmployee = employees.find(emp => emp.id === insumosEmployeeId);
+      if (insumosEmployee && availableEmployeesForWeek.some(e => e.id === insumosEmployee.id)) {
+        assignShift("Insumos", 1, [insumosEmployee]);
+      } else {
+        // Fallback si el empleado de insumos no está disponible (ej. inactivo)
+        assignShift("Insumos", 1);
+      }
+      
 
+      // 2. Asignar los demás turnos de forma aleatoria
       assignShift("Administrativo", 1);
       assignShift("Noche", 2);
       assignShift("Mañana", 2);
-      
-      // Asignar los restantes a Tarde
+
+      // El resto va a tarde
       availableEmployeesForWeek.forEach(emp => {
-        if (!weeklyAssignments[emp.id]) {
-          weeklyAssignments[emp.id] = 'Tarde';
-        }
+        weeklyAssignments[emp.id] = 'Tarde';
       });
-      
-      lastWeekAssignments = { ...weeklyAssignments };
+
+      lastWeekAssignments = weeklyAssignments;
 
       employees.forEach((emp) => {
         const weeklyShift = weeklyAssignments[emp.id] || "Descanso";
@@ -177,7 +194,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
           let dailyShift: ShiftType = weeklyShift;
 
-          // Nuevas reglas de descanso
           if (
             (weeklyShift === "Mañana" ||
               weeklyShift === "Tarde" ||
