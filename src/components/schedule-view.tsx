@@ -121,11 +121,17 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         // Filtra empleados que tuvieron este mismo turno la semana anterior
         pool = pool.filter((emp) => lastWeekAssignments[emp.id] !== shift);
 
+        // Si el pool se vacía por el filtro, lo reseteamos para asegurar la asignación
+        if (pool.length < count && customPool === undefined) {
+            pool = [...availableEmployeesForWeek];
+        }
+
         if (pool.length === 0) return;
 
         for (let j = 0; j < pool.length; j++) {
           if (assignedCount >= count) break;
-          const employeeIndex = (weekOfYear + j) % pool.length;
+          // Usar un índice pseudo-aleatorio para más variedad
+          const employeeIndex = (weekOfYear + j + assignedCount) % pool.length;
           const employee = pool[employeeIndex];
 
           if (availableEmployeesForWeek.some((e) => e.id === employee.id)) {
@@ -133,15 +139,16 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
             availableEmployeesForWeek = availableEmployeesForWeek.filter(
               (e) => e.id !== employee.id
             );
+            pool.splice(employeeIndex, 1); // Remover del pool para no reasignar
             assignedCount++;
           }
         }
       };
-
+      
       // 1. Asignar Insumos (un empleado diferente cada 8 semanas)
       if (employees.length > 0) {
-        const insumosEmployeeIndex = (weekOfYear - 1) % employees.length;
-        assignShift("Insumos", 1, [employees[insumosEmployeeIndex]]);
+          const insumosEmployeeIndex = (weekOfYear - 1) % employees.length;
+          assignShift("Insumos", 1, [employees[insumosEmployeeIndex]]);
       }
 
       // 2. Asignar Administrativo
@@ -153,15 +160,22 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       // 4. Asignar Mañana
       assignShift("Mañana", 2);
 
-      // 5. Asignar el resto a Tarde
+      // 5. Asignar Tarde
       assignShift("Tarde", 2);
 
+      // 6. Respaldo: si algún empleado quedó sin asignar, se le da Tarde.
+      availableEmployeesForWeek.forEach((emp) => {
+        if (!weeklyAssignments[emp.id]) {
+            weeklyAssignments[emp.id] = "Tarde";
+        }
+      });
+
       // Actualizar las asignaciones para la próxima semana
-      lastWeekAssignments = weeklyAssignments;
+      lastWeekAssignments = { ...weeklyAssignments };
 
       // Asignar turnos a cada día de la semana
       employees.forEach((emp) => {
-        const weeklyShift = weeklyAssignments[emp.id] || "Descanso";
+        const weeklyShift = weeklyAssignments[emp.id] || "Descanso"; // 'Descanso' como fallback final
         const weekDays = eachDayOfInterval({
           start: weekStart,
           end: endOfWeek(weekStart, { weekStartsOn: 1 }),
@@ -178,7 +192,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
           // Reglas de descanso para los fines de semana
           if (
             (weeklyShift === "Mañana" || weeklyShift === "Tarde") &&
-            dayOfWeek === 0
+            dayOfWeek === 0 // Domingo
           ) {
             dailyShift = "Descanso";
           }
@@ -186,8 +200,12 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
             (weeklyShift === "Insumos" ||
               weeklyShift === "Noche" ||
               weeklyShift === "Administrativo") &&
-            (dayOfWeek === 0 || dayOfWeek === 6)
+            (dayOfWeek === 0 || dayOfWeek === 6) // Sábado o Domingo
           ) {
+            dailyShift = "Descanso";
+          }
+          
+          if(weeklyShift === "Descanso") {
             dailyShift = "Descanso";
           }
 
