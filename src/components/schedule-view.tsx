@@ -49,6 +49,14 @@ const INSOMOS_ROTATION_ORDER = [
   "1", "2", "4", "3", "7", "8", "5", "6"
 ];
 
+const NOCHE_ROTATION_ORDER = [
+  ["1", "4"],
+  ["2", "3"],
+  ["7", "8"],
+  ["5", "6"],
+];
+
+
 const shuffleArray = <T>(array: T[]): T[] => {
   const newArray = [...array];
   for (let i = newArray.length - 1; i > 0; i--) {
@@ -133,13 +141,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
         pool = pool.filter((emp) => lastWeekAssignments[emp.id] !== shift);
         
-        if (pool.length === 0) {
-            // Si el pool se vacía por el filtro, lo reseteamos para asegurar la asignación si no es un pool customizado
-            if (customPool === undefined) {
-                pool = shuffleArray([...availableEmployeesForWeek]);
-            } else {
-                return; // No hay empleados disponibles en el pool customizado
-            }
+        if (pool.length === 0 && customPool === undefined) {
+             pool = shuffleArray([...availableEmployeesForWeek]);
         }
 
         for (let j = 0; j < pool.length; j++) {
@@ -161,15 +164,15 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       const insumosEmployee = employees.find(emp => emp.id === insumosEmployeeId);
       if (insumosEmployee && availableEmployeesForWeek.some(e => e.id === insumosEmployee.id)) {
         assignShift("Insumos", 1, [insumosEmployee]);
-      } else {
-        // Fallback si el empleado de insumos no está disponible (ej. inactivo)
-        assignShift("Insumos", 1);
       }
       
+      // 2. Asignar Noche según el orden fijo de 2 personas por semana
+      const nocheEmployeeIds = NOCHE_ROTATION_ORDER[(weekOfYear - 1) % NOCHE_ROTATION_ORDER.length];
+      const nocheEmployees = employees.filter(emp => nocheEmployeeIds.includes(emp.id) && availableEmployeesForWeek.some(e => e.id === emp.id));
+      assignShift("Noche", nocheEmployees.length, nocheEmployees);
 
-      // 2. Asignar los demás turnos de forma aleatoria
+      // 3. Asignar los demás turnos de forma aleatoria entre los restantes
       assignShift("Administrativo", 1);
-      assignShift("Noche", 2);
       assignShift("Mañana", 2);
 
       // El resto va a tarde
@@ -239,7 +242,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     if (savedSchedules) {
       try {
         const parsed = JSON.parse(savedSchedules);
-        // Basic validation
         if (Array.isArray(parsed) && parsed.every(p => p.employeeId && Array.isArray(p.schedule))) {
           setSchedules(parsed);
           setIsGenerated(true);
@@ -479,5 +481,3 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
-
-    
