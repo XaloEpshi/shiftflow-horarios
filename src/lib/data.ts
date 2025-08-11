@@ -23,6 +23,8 @@ export function generateInitialSchedule(
 ): EmployeeSchedule[] {
   const daysInMonth = getDaysInMonth(new Date(year, month));
   
+  // Return a simple, non-random schedule.
+  // The complex generation will happen on the client.
   return employeeList.map(employee => {
     return {
       employeeId: employee.id,
