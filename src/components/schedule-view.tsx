@@ -2,7 +2,7 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, eachDayOfInterval, endOfWeek, startOfWeek, addDays, getWeeksInMonth, differenceInDays } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, eachDayOfInterval, endOfWeek, startOfWeek, addDays, getWeek, differenceInDays } from "date-fns"
 import { es } from "date-fns/locale"
 import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, FileDown } from "lucide-react"
 
@@ -40,6 +40,14 @@ const shiftVariantMap: Record<ShiftType, string> = {
   "Insumos": "bg-slate-500/10 text-slate-700 border-slate-500/20 dark:text-slate-400 dark:border-slate-500/30",
   "Descanso": "bg-gray-500/10 text-gray-600 border-gray-500/20 dark:text-gray-400 dark:border-gray-500/30",
 }
+
+// Fixed pairs for rotation
+const EMPLOYEE_PAIRS: [string, string][] = [
+  ["1", "2"], // Gonzalo, Luis
+  ["3", "4"], // Osvaldo, Sebastian
+  ["5", "6"], // Darien, Abraham
+  ["7", "8"], // Ariel, Bastian
+];
 
 interface ScheduleViewProps {
   employees: Employee[]
@@ -118,6 +126,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
 
+    const SHIFTS_ROTATION: ShiftType[] = ["Mañana", "Tarde", "Noche"];
+
     for (let weekIndex = 0; weekIndex < weeksInMonthCount; weekIndex++) {
         let weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), weekIndex * 7);
 
@@ -129,14 +139,23 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         
         const weeklyAssignments: Record<string, ShiftType> = {};
         
-        employees.forEach(emp => {
-            const empIdNumber = parseInt(emp.id, 10);
-            if (empIdNumber % 2 === 0) { // N° 2,4,6,8
-                weeklyAssignments[emp.id] = "Administrativo";
-            } else { // N° 1,3,5,7
-                weeklyAssignments[emp.id] = "Insumos";
-            }
+        const weekOfYear = getWeek(weekStart, {weekStartsOn: 1});
+        const restingPairIndex = (weekOfYear - 1) % EMPLOYEE_PAIRS.length;
+        const activePairs = EMPLOYEE_PAIRS.filter((_, index) => index !== restingPairIndex);
+
+        activePairs.forEach((pair, pairIndex) => {
+            const shiftIndex = (weekOfYear - 1 + pairIndex) % SHIFTS_ROTATION.length;
+            const shift = SHIFTS_ROTATION[shiftIndex];
+            weeklyAssignments[pair[0]] = shift;
+            weeklyAssignments[pair[1]] = shift;
         });
+
+        // Assign Descanso to the resting pair
+        const restingPair = EMPLOYEE_PAIRS[restingPairIndex];
+        if (restingPair) {
+          weeklyAssignments[restingPair[0]] = "Descanso";
+          weeklyAssignments[restingPair[1]] = "Descanso";
+        }
 
         employees.forEach((emp) => {
             const weeklyShift = weeklyAssignments[emp.id] || "Descanso";
@@ -153,10 +172,11 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
                 let dailyShift: ShiftType = weeklyShift;
 
-                if (weeklyShift === "Insumos" && dayOfWeek === 0) { // Domingo
+                // Weekend rests
+                if ((weeklyShift === "Mañana" || weeklyShift === "Tarde") && dayOfWeek === 0) { // Domingo
                     dailyShift = "Descanso";
                 }
-                if (weeklyShift === "Administrativo" && (dayOfWeek === 0 || dayOfWeek === 6)) { // Sábado y Domingo
+                if (weeklyShift === "Noche" && (dayOfWeek === 0 || dayOfWeek === 6)) { // Sábado y Domingo
                     dailyShift = "Descanso";
                 }
 
@@ -211,7 +231,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     ? activeEmployees
     : activeEmployees.filter(e => e.id === selectedEmployeeId)
 
-  const shiftTypesToDisplay = activeEmployees.length >= 8 ? ALL_SHIFT_TYPES : ALL_SHIFT_TYPES.filter(s => s !== 'Insumos');
+  const shiftTypesToDisplay = activeEmployees.length >= 8 ? ALL_SHIFT_TYPES.filter(s => s === 'Mañana' || s === 'Tarde' || s === 'Noche' || s === 'Descanso') : ALL_SHIFT_TYPES;
+
 
   const exportToCsv = () => {
     const headers = ["Empleado", ...Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => `${i + 1}`)];
@@ -226,7 +247,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
     let csvContent = "data:text/csv;charset=utf-8," 
       + headers.join(",") + "\n" 
-      + rows.map(e => e.join(",")).join("\n");
+      + rows.map(e => e.join("\n")).join("\n");
     
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -416,3 +437,5 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
+
+    
