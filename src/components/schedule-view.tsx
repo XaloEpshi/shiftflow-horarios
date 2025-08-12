@@ -142,7 +142,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         pool = pool.filter((emp) => lastWeekAssignments[emp.id] !== shift);
         
         if (pool.length === 0) {
-             return; // Si no hay empleados disponibles, no hacer nada
+             return; 
         }
 
         for (let j = 0; j < pool.length; j++) {
@@ -158,18 +158,18 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
           }
         }
       };
-
-      // 1. Asignar Insumos según el orden fijo
+      
+      // 1. Asignar Noche según el orden fijo de 2 personas por semana
+      const nocheEmployeeIds = NOCHE_ROTATION_ORDER[(weekOfYear - 1) % NOCHE_ROTATION_ORDER.length];
+      const nocheEmployees = employees.filter(emp => nocheEmployeeIds.includes(emp.id) && availableEmployeesForWeek.some(e => e.id === emp.id));
+      assignShift("Noche", nocheEmployees.length, nocheEmployees);
+      
+      // 2. Asignar Insumos según el orden fijo
       const insumosEmployeeId = INSOMOS_ROTATION_ORDER[(weekOfYear - 1) % INSOMOS_ROTATION_ORDER.length];
       const insumosEmployee = employees.find(emp => emp.id === insumosEmployeeId);
       if (insumosEmployee && availableEmployeesForWeek.some(e => e.id === insumosEmployee.id)) {
         assignShift("Insumos", 1, [insumosEmployee]);
       }
-      
-      // 2. Asignar Noche según el orden fijo de 2 personas por semana
-      const nocheEmployeeIds = NOCHE_ROTATION_ORDER[(weekOfYear - 1) % NOCHE_ROTATION_ORDER.length];
-      const nocheEmployees = employees.filter(emp => nocheEmployeeIds.includes(emp.id) && availableEmployeesForWeek.some(e => e.id === emp.id));
-      assignShift("Noche", nocheEmployees.length, nocheEmployees);
 
       // 3. Asignar los demás turnos de forma aleatoria entre los restantes
       assignShift("Administrativo", 1);
