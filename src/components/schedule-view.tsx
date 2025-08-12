@@ -159,51 +159,45 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       const weeklyAssignments: Record<string, ShiftType> = {};
       let availableEmployeesForWeek = [...employees];
 
-      const assignShift = (
-        shift: ShiftType,
-        count: number,
-        customPool?: Employee[]
-      ) => {
-        let pool = customPool ? [...customPool] : shuffleArray(availableEmployeesForWeek.filter(emp => !Object.values(weeklyAssignments).includes(emp.id)));
-        let assignedCount = 0;
+      const assignStrict = (shift: ShiftType, count: number, isFixed = false) => {
+          let assignedEmployees: Employee[] = [];
+          
+          if (isFixed) {
+              let pool = availableEmployeesForWeek;
+              if (shift === "Noche") {
+                  const nocheEmployeeIds = NOCHE_ROTATION_ORDER[(weekOfYear - 1) % NOCHE_ROTATION_ORDER.length];
+                  pool = employees.filter(emp => nocheEmployeeIds.includes(emp.id));
+              } else if (shift === "Insumos") {
+                  const insumosEmployeeId = INSOMOS_ROTATION_ORDER[(weekOfYear - 1) % INSOMOS_ROTATION_ORDER.length];
+                  pool = employees.filter(emp => emp.id === insumosEmployeeId);
+              }
+              assignedEmployees = pool.filter(emp => availableEmployeesForWeek.some(e => e.id === emp.id));
+          } else {
+              // Try with "no-repeat" rule first
+              let pool = shuffleArray(availableEmployeesForWeek.filter(emp => lastWeekAssignments[emp.id] !== shift));
+              
+              // If not enough employees, ignore the "no-repeat" rule to enforce the count
+              if (pool.length < count) {
+                  pool = shuffleArray(availableEmployeesForWeek);
+              }
+              
+              assignedEmployees = pool.slice(0, count);
+          }
 
-        pool = pool.filter((emp) => lastWeekAssignments[emp.id] !== shift);
-        
-        if (pool.length === 0) return; 
-
-        for (let j = 0; j < pool.length; j++) {
-            if (assignedCount >= count) break;
-            const employee = pool[j];
-
-            if (availableEmployeesForWeek.some((e) => e.id === employee.id)) {
-                weeklyAssignments[employee.id] = shift;
-                availableEmployeesForWeek = availableEmployeesForWeek.filter(
-                    (e) => e.id !== employee.id
-                );
-                assignedCount++;
-            }
-        }
+          assignedEmployees.forEach(employee => {
+              weeklyAssignments[employee.id] = shift;
+              availableEmployeesForWeek = availableEmployeesForWeek.filter(
+                  (e) => e.id !== employee.id
+              );
+          });
       };
       
-      const nocheEmployeeIds = NOCHE_ROTATION_ORDER[(weekOfYear - 1) % NOCHE_ROTATION_ORDER.length];
-      const nocheEmployees = employees.filter(emp => nocheEmployeeIds.includes(emp.id) && availableEmployeesForWeek.some(e => e.id === emp.id));
-      if(nocheEmployees.length > 0) {
-        nocheEmployees.forEach(emp => {
-            weeklyAssignments[emp.id] = "Noche";
-            availableEmployeesForWeek = availableEmployeesForWeek.filter(e => e.id !== emp.id);
-        });
-      }
-
-      const insumosEmployeeId = INSOMOS_ROTATION_ORDER[(weekOfYear - 1) % INSOMOS_ROTATION_ORDER.length];
-      const insumosEmployee = employees.find(emp => emp.id === insumosEmployeeId);
-      if (insumosEmployee && availableEmployeesForWeek.some(e => e.id === insumosEmployee.id)) {
-        weeklyAssignments[insumosEmployee.id] = "Insumos";
-        availableEmployeesForWeek = availableEmployeesForWeek.filter(e => e.id !== insumosEmployee.id);
-      }
+      assignStrict("Noche", 2, true);
+      assignStrict("Insumos", 1, true);
+      assignStrict("Administrativo", 1);
+      assignStrict("Mañana", 2);
       
-      assignShift("Administrativo", 1);
-      assignShift("Mañana", 2);
-      
+      // Assign the rest to Tarde
       availableEmployeesForWeek.forEach(emp => {
         weeklyAssignments[emp.id] = 'Tarde';
       });
@@ -285,12 +279,12 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       } catch (e) {
         console.error("Failed to parse saved schedules, resetting.", e);
         localStorage.removeItem(scheduleKey);
-        setSchedules(initialScheduleData);
+        generateSchedule();
       }
     } else {
-      setSchedules(initialScheduleData);
+      generateSchedule();
     }
-  }, [currentDate, activeEmployeeIds]);
+  }, [currentDate, activeEmployeeIds, generateSchedule]);
 
   const filteredEmployees = selectedEmployeeId === "all"
     ? activeEmployees
@@ -422,17 +416,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                                  setIsScheduleSaved(false);
                                  setLastSaveDate(null);
                                  
-                                 const daysInMonth = getDaysInMonth(currentDate);
-                                 const newActiveEmployees = allEmployees.filter(e => newSet.has(e.id));
-                                 const resetSchedules = newActiveEmployees.map(emp => ({
-                                  employeeId: emp.id,
-                                  schedule: Array.from({ length: daysInMonth }, (_, i) => ({
-                                    day: i + 1,
-                                    shift: 'Descanso' as ShiftType,
-                                  })),
-                                 }));
-                                 setSchedules(resetSchedules);
-
                                  return newSet;
                                });
                              }}
@@ -512,3 +495,5 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
+
+    
