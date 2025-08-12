@@ -130,11 +130,17 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     if (savedSchedules) {
       try {
         const parsed = JSON.parse(savedSchedules);
+        // Basic validation
         if (Array.isArray(parsed) && parsed.every(p => p.employeeId && Array.isArray(p.schedule))) {
-          setSchedules(parsed);
-        } else {
-          throw new Error("Invalid schedule format");
+           const activeSavedIds = new Set(parsed.map((p: any) => p.employeeId));
+            if (activeSavedIds.size === activeEmployeeIds.size && [...activeSavedIds].every(id => activeEmployeeIds.has(id))) {
+                setSchedules(parsed);
+                return;
+            }
         }
+         // If validation fails or active employees changed, regenerate
+        generateSchedule();
+
       } catch (e) {
         console.error("Failed to parse saved schedules, resetting.", e);
         localStorage.removeItem(scheduleKey);
@@ -144,6 +150,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       generateSchedule();
     }
   }, [currentDate, activeEmployeeIds, generateSchedule]);
+
 
   const filteredEmployees = selectedEmployeeId === "all"
     ? activeEmployees
@@ -268,9 +275,12 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                                  if (checked) {
                                    newSet.add(employee.id);
                                  } else {
-                                   newSet.delete(employee.id);
+                                   if (newSet.size > 1) { // Prevent removing the last employee
+                                     newSet.delete(employee.id);
+                                   }
                                  }
                                  
+                                 // Clear saved data for the current month when employee list changes
                                  const scheduleKey = getScheduleStorageKey(currentDate);
                                  const lockoutKey = getLockoutStorageKey(currentDate);
                                  localStorage.removeItem(scheduleKey);
@@ -357,3 +367,5 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
+
+    
