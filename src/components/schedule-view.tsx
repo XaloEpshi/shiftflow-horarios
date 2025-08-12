@@ -47,7 +47,7 @@ interface ScheduleViewProps {
 }
 
 const INSOMOS_ROTATION_ORDER = [
-  "1", "2", "4", "3", "7", "8", "5", "6"
+  "1", "2", "3", "4", "5", "6", "7", "8"
 ];
 
 const NOCHE_ROTATION_ORDER = [
@@ -173,10 +173,8 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
               }
               assignedEmployees = pool.filter(emp => availableEmployeesForWeek.some(e => e.id === emp.id));
           } else {
-              // Try with "no-repeat" rule first
               let pool = shuffleArray(availableEmployeesForWeek.filter(emp => lastWeekAssignments[emp.id] !== shift));
               
-              // If not enough employees, ignore the "no-repeat" rule to enforce the count
               if (pool.length < count) {
                   pool = shuffleArray(availableEmployeesForWeek);
               }
@@ -197,7 +195,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       assignStrict("Administrativo", 1);
       assignStrict("Mañana", 2);
       
-      // Assign the rest to Tarde
       availableEmployeesForWeek.forEach(emp => {
         weeklyAssignments[emp.id] = 'Tarde';
       });
