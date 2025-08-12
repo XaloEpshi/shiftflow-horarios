@@ -2,7 +2,7 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeeksInMonth, startOfWeek, addDays, eachDayOfInterval, endOfWeek, getWeek, isSameDay } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeeksInMonth, startOfWeek, addDays, eachDayOfInterval, endOfWeek, getWeek, isSameDay, differenceInDays } from "date-fns"
 import { es } from "date-fns/locale"
 import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, FileDown } from "lucide-react"
 
@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Icons } from "@/components/icons"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,11 +74,17 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
   const [activeEmployeeIds, setActiveEmployeeIds] = React.useState<Set<string>>(new Set(allEmployees.map(e => e.id)));
   
-  const [isGenerated, setIsGenerated] = React.useState(false);
-  const [regenerationCount, setRegenerationCount] = React.useState(0);
+  const [isScheduleSaved, setIsScheduleSaved] = React.useState(false);
+  const [lastSaveDate, setLastSaveDate] = React.useState<Date | null>(null);
 
   const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
   
+  const getScheduleStorageKey = (date: Date) => `schedule-${date.getFullYear()}-${date.getMonth()}`;
+  const getLockoutStorageKey = (date: Date) => `schedule-lockout-${date.getFullYear()}-${date.getMonth()}`;
+
+  const daysUntilNextGen = lastSaveDate ? 15 - differenceInDays(new Date(), lastSaveDate) : 0;
+  const isGenerationLocked = daysUntilNextGen > 0;
+
   const handleShiftChange = (employeeId: string, day: number, newShift: ShiftType) => {
     setSchedules(prevSchedules =>
       prevSchedules.map(empSchedule => {
@@ -92,13 +99,34 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     )
   }
   
-  const getStorageKey = (date: Date) => `schedule-${date.getFullYear()}-${date.getMonth()}`;
+  const clearSchedule = () => {
+    const daysInMonth = getDaysInMonth(currentDate);
+    const resetSchedules = activeEmployees.map(emp => ({
+      employeeId: emp.id,
+      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+        day: i + 1,
+        shift: 'Descanso' as ShiftType,
+      })),
+    }));
+    setSchedules(resetSchedules);
+  };
+  
+  const saveSchedule = () => {
+    const scheduleKey = getScheduleStorageKey(currentDate);
+    const lockoutKey = getLockoutStorageKey(currentDate);
+    const now = new Date();
 
-  const generateSchedule = React.useCallback((force = false) => {
+    localStorage.setItem(scheduleKey, JSON.stringify(schedules));
+    localStorage.setItem(lockoutKey, now.toISOString());
+    setLastSaveDate(now);
+    setIsScheduleSaved(true);
+  }
+
+  const generateSchedule = React.useCallback(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const employees = activeEmployees;
-    if (employees.length === 0) return;
+    if (employees.length < 8) return;
 
     const daysInMonth = getDaysInMonth(currentDate);
 
@@ -136,46 +164,46 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         count: number,
         customPool?: Employee[]
       ) => {
-        let pool = customPool ? [...customPool] : shuffleArray([...availableEmployeesForWeek]);
+        let pool = customPool ? [...customPool] : shuffleArray(availableEmployeesForWeek.filter(emp => !Object.values(weeklyAssignments).includes(emp.id)));
         let assignedCount = 0;
 
         pool = pool.filter((emp) => lastWeekAssignments[emp.id] !== shift);
         
-        if (pool.length === 0) {
-             return; 
-        }
+        if (pool.length === 0) return; 
 
         for (let j = 0; j < pool.length; j++) {
-          if (assignedCount >= count) break;
-          const employee = pool[j];
+            if (assignedCount >= count) break;
+            const employee = pool[j];
 
-          if (availableEmployeesForWeek.some((e) => e.id === employee.id)) {
-            weeklyAssignments[employee.id] = shift;
-            availableEmployeesForWeek = availableEmployeesForWeek.filter(
-              (e) => e.id !== employee.id
-            );
-            assignedCount++;
-          }
+            if (availableEmployeesForWeek.some((e) => e.id === employee.id)) {
+                weeklyAssignments[employee.id] = shift;
+                availableEmployeesForWeek = availableEmployeesForWeek.filter(
+                    (e) => e.id !== employee.id
+                );
+                assignedCount++;
+            }
         }
       };
       
-      // 1. Asignar Noche según el orden fijo de 2 personas por semana
       const nocheEmployeeIds = NOCHE_ROTATION_ORDER[(weekOfYear - 1) % NOCHE_ROTATION_ORDER.length];
       const nocheEmployees = employees.filter(emp => nocheEmployeeIds.includes(emp.id) && availableEmployeesForWeek.some(e => e.id === emp.id));
-      assignShift("Noche", nocheEmployees.length, nocheEmployees);
-      
-      // 2. Asignar Insumos según el orden fijo
+      if(nocheEmployees.length > 0) {
+        nocheEmployees.forEach(emp => {
+            weeklyAssignments[emp.id] = "Noche";
+            availableEmployeesForWeek = availableEmployeesForWeek.filter(e => e.id !== emp.id);
+        });
+      }
+
       const insumosEmployeeId = INSOMOS_ROTATION_ORDER[(weekOfYear - 1) % INSOMOS_ROTATION_ORDER.length];
       const insumosEmployee = employees.find(emp => emp.id === insumosEmployeeId);
       if (insumosEmployee && availableEmployeesForWeek.some(e => e.id === insumosEmployee.id)) {
-        assignShift("Insumos", 1, [insumosEmployee]);
+        weeklyAssignments[insumosEmployee.id] = "Insumos";
+        availableEmployeesForWeek = availableEmployeesForWeek.filter(e => e.id !== insumosEmployee.id);
       }
-
-      // 3. Asignar los demás turnos de forma aleatoria entre los restantes
+      
       assignShift("Administrativo", 1);
       assignShift("Mañana", 2);
-
-      // El resto va a tarde
+      
       availableEmployeesForWeek.forEach(emp => {
         weeklyAssignments[emp.id] = 'Tarde';
       });
@@ -227,45 +255,41 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         }
       });
     }
-
     setSchedules(newSchedules);
-    localStorage.setItem(getStorageKey(currentDate), JSON.stringify(newSchedules));
-    setIsGenerated(true);
-    if(force) {
-      setRegenerationCount(prev => prev + 1);
-    }
+    setIsScheduleSaved(false);
   }, [currentDate, activeEmployees]);
   
   React.useEffect(() => {
-    const storageKey = getStorageKey(currentDate);
-    const savedSchedules = localStorage.getItem(storageKey);
+    const scheduleKey = getScheduleStorageKey(currentDate);
+    const lockoutKey = getLockoutStorageKey(currentDate);
+    
+    const savedSchedules = localStorage.getItem(scheduleKey);
+    const savedLockoutDate = localStorage.getItem(lockoutKey);
+
+    if (savedLockoutDate) {
+        setLastSaveDate(new Date(savedLockoutDate));
+        setIsScheduleSaved(true);
+    } else {
+        setLastSaveDate(null);
+        setIsScheduleSaved(false);
+    }
+
     if (savedSchedules) {
       try {
         const parsed = JSON.parse(savedSchedules);
         if (Array.isArray(parsed) && parsed.every(p => p.employeeId && Array.isArray(p.schedule))) {
           setSchedules(parsed);
-          setIsGenerated(true);
         } else {
           throw new Error("Invalid schedule format");
         }
       } catch (e) {
         console.error("Failed to parse saved schedules, resetting.", e);
-        localStorage.removeItem(storageKey);
-        setIsGenerated(false);
+        localStorage.removeItem(scheduleKey);
+        setSchedules(initialScheduleData);
       }
     } else {
-      const daysInMonth = getDaysInMonth(currentDate);
-      const resetSchedules = activeEmployees.map(emp => ({
-        employeeId: emp.id,
-        schedule: Array.from({ length: daysInMonth }, (_, i) => ({
-          day: i + 1,
-          shift: 'Descanso' as ShiftType,
-        })),
-      }));
-      setSchedules(resetSchedules);
-      setIsGenerated(false);
+      setSchedules(initialScheduleData);
     }
-    setRegenerationCount(0);
   }, [currentDate, activeEmployeeIds]);
 
   const filteredEmployees = selectedEmployeeId === "all"
@@ -318,38 +342,42 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
               </Button>
             </div>
             
+            <Button variant="outline" onClick={generateSchedule} disabled={activeEmployees.length < 8 || isGenerationLocked}>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {isGenerationLocked ? `Generar en ${daysUntilNextGen} días` : 'Generar Horario'}
+            </Button>
+
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="outline" disabled={activeEmployees.length < 8}>
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  Generar Horario
+                 <Button variant="outline" disabled={isScheduleSaved}>
+                    <Icons.save className="mr-2 h-4 w-4" />
+                    Guardar
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Confirmar Acción</AlertDialogTitle>
+                  <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
                   <AlertDialogDescription>
-                    {activeEmployees.length < 8 ? "Se necesitan al menos 8 empleados activos para generar el horario." : 
-                      isGenerated
-                      ? `Ya has generado el horario para este mes. ${regenerationCount < 5 ? `Puedes volver a generarlo, pero ten en cuenta que solo puedes hacerlo ${5 - regenerationCount} veces más.` : 'Has alcanzado el límite de regeneraciones para este mes.'}`
-                      : 'Estás a punto de generar el horario para el mes actual.'
-                    }
+                    Al guardar este horario, no podrás generar uno nuevo para este mes durante los próximos 15 días. ¿Estás seguro de que quieres continuar?
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => generateSchedule(isGenerated)}
-                    disabled={(isGenerated && regenerationCount >= 5) || activeEmployees.length < 8}
-                  >
-                    {isGenerated ? 'Volver a generar' : 'Generar'}
+                  <AlertDialogAction onClick={saveSchedule}>
+                    Guardar Horario
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            
+             <Button variant="outline" onClick={clearSchedule}>
+                <Icons.trash className="mr-2 h-4 w-4" />
+                Limpiar
+            </Button>
+
             <Button onClick={exportToCsv} variant="outline">
               <FileDown className="mr-2 h-4 w-4" />
-              Exportar a CSV
+              Exportar
             </Button>
             <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
               <SelectTrigger className="w-full sm:w-[200px]">
@@ -386,11 +414,14 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                                  } else {
                                    newSet.delete(employee.id);
                                  }
-                                 // When changing active employees, clear existing schedule for the month
-                                 localStorage.removeItem(getStorageKey(currentDate));
-                                 setIsGenerated(false);
-                                 setRegenerationCount(0);
-                                 // Also reset employees state
+                                 
+                                 const scheduleKey = getScheduleStorageKey(currentDate);
+                                 const lockoutKey = getLockoutStorageKey(currentDate);
+                                 localStorage.removeItem(scheduleKey);
+                                 localStorage.removeItem(lockoutKey);
+                                 setIsScheduleSaved(false);
+                                 setLastSaveDate(null);
+                                 
                                  const daysInMonth = getDaysInMonth(currentDate);
                                  const newActiveEmployees = allEmployees.filter(e => newSet.has(e.id));
                                  const resetSchedules = newActiveEmployees.map(emp => ({
