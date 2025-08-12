@@ -128,15 +128,15 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
     const isEvenMonth = (month + 1) % 2 === 0;
 
-    const adminEmployees = isEvenMonth ? ["1", "2", "3", "4"] : ["5", "6", "7", "8"];
-    const insumosEmployees = isEvenMonth ? ["5", "6", "7", "8"] : ["1", "2", "3", "4"];
+    const adminEmployeeIds = isEvenMonth ? ["1", "2", "3", "4"] : ["5", "6", "7", "8"];
+    const insumosEmployeeIds = isEvenMonth ? ["5", "6", "7", "8"] : ["1", "2", "3", "4"];
     
     // Assign Administrative and Insumos for the whole month
     employees.forEach(emp => {
         let assignedShift: ShiftType | null = null;
-        if (adminEmployees.includes(emp.id)) {
+        if (adminEmployeeIds.includes(emp.id)) {
             assignedShift = "Administrativo";
-        } else if (insumosEmployees.includes(emp.id)) {
+        } else if (insumosEmployeeIds.includes(emp.id)) {
             assignedShift = "Insumos";
         }
 
@@ -175,7 +175,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         
         const weekOfMonth = Math.floor((weekStart.getDate() - 1) / 7);
 
-        const employeesForRotation = employees.filter(emp => !adminEmployees.includes(emp.id) && !insumosEmployees.includes(emp.id));
+        const employeesForRotation = employees.filter(emp => !adminEmployeeIds.includes(emp.id) && !insumosEmployeeIds.includes(emp.id));
         const pairsForRotation = EMPLOYEE_PAIRS.filter(p => employeesForRotation.some(e => e.id === p[0]));
         
         const nightPairIndex = weekOfMonth % 2;
@@ -473,5 +473,3 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
-
-      
