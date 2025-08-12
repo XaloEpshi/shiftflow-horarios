@@ -130,10 +130,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
     const adminEmployees = isEvenMonth ? ["1", "2", "3", "4"] : ["5", "6", "7", "8"];
     const insumosEmployees = isEvenMonth ? ["5", "6", "7", "8"] : ["1", "2", "3", "4"];
-
-    const rotationPairs = EMPLOYEE_PAIRS.filter(pair => 
-        !adminEmployees.includes(pair[0]) && !insumosEmployees.includes(pair[0])
-    );
     
     // Assign Administrative and Insumos for the whole month
     employees.forEach(emp => {
@@ -271,7 +267,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     ? activeEmployees
     : activeEmployees.filter(e => e.id === selectedEmployeeId)
 
-  const shiftTypesToDisplay = ALL_SHIFT_TYPES;
+  const shiftTypesToDisplay = ALL_SHIFT_TYPES.filter(s => s !== 'Tarde');
 
 
   const exportToCsv = () => {
@@ -287,7 +283,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
 
     let csvContent = "data:text/csv;charset=utf-8," 
       + headers.join(",") + "\n" 
-      + rows.map(e => e.join("\n")).join("\n");
+      + rows.map(e => e.join(",")).join("\n");
     
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -477,3 +473,5 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
+
+      
