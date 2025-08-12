@@ -2,14 +2,14 @@ import { getDaysInMonth } from 'date-fns';
 import type { Employee, EmployeeSchedule } from '@/types';
 
 const employees: Employee[] = [
-  { id: '1', name: 'Gonzalo Mellao' },
-  { id: '2', name: 'Luis Villagra' },
-  { id: '3', name: 'Osvaldo Amaro' },
-  { id: '4', name: 'Sebastian Amaro' },
-  { id: '5', name: 'Darien Marambio' },
-  { id: '6', name: 'Abraham Romero' },
-  { id: '7', name: 'Ariel Donoso' },
-  { id: '8', name: 'Bastian Lopez' },
+  { id: '1', name: '1. Gonzalo Mellao' },
+  { id: '2', name: '2. Luis Villagra' },
+  { id: '3', name: '3. Osvaldo Amaro' },
+  { id: '4', name: '4. Sebastian Amaro' },
+  { id: '5', name: '5. Darien Marambio' },
+  { id: '6', name: '6. Abraham Romero' },
+  { id: '7', name: '7. Ariel Donoso' },
+  { id: '8', name: '8. Bastian Lopez' },
 ];
 
 export function getEmployees(): Employee[] {
