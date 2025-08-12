@@ -112,7 +112,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const employees = activeEmployees;
-    
+
     const daysInMonth = getDaysInMonth(currentDate);
 
     const newSchedules: EmployeeSchedule[] = employees.map((emp) => ({
@@ -126,10 +126,51 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
 
+    const isEvenMonth = (month + 1) % 2 === 0;
+
+    const adminEmployees = isEvenMonth ? ["1", "2", "3", "4"] : ["5", "6", "7", "8"];
+    const insumosEmployees = isEvenMonth ? ["5", "6", "7", "8"] : ["1", "2", "3", "4"];
+
+    const rotationPairs = EMPLOYEE_PAIRS.filter(pair => 
+        !adminEmployees.includes(pair[0]) && !insumosEmployees.includes(pair[0])
+    );
+    
+    // Assign Administrative and Insumos for the whole month
+    employees.forEach(emp => {
+        let assignedShift: ShiftType | null = null;
+        if (adminEmployees.includes(emp.id)) {
+            assignedShift = "Administrativo";
+        } else if (insumosEmployees.includes(emp.id)) {
+            assignedShift = "Insumos";
+        }
+
+        if (assignedShift) {
+             const empSchedule = newSchedules.find((s) => s.employeeId === emp.id);
+             if (empSchedule) {
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dayDate = new Date(year, month, day);
+                    const dayOfWeek = dayDate.getDay();
+                    let dailyShift: ShiftType = assignedShift;
+
+                    if (assignedShift === "Administrativo" && (dayOfWeek === 6 || dayOfWeek === 0)) {
+                        dailyShift = "Descanso";
+                    } else if (assignedShift === "Insumos" && dayOfWeek === 0) {
+                        dailyShift = "Descanso";
+                    }
+
+                    const dayIndex = empSchedule.schedule.findIndex((s) => s.day === day);
+                    if (dayIndex !== -1) {
+                       empSchedule.schedule[dayIndex].shift = dailyShift;
+                    }
+                }
+             }
+        }
+    });
+
+
     for (let weekIndex = 0; weekIndex < weeksInMonthCount; weekIndex++) {
         const weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), weekIndex * 7);
 
-        // Skip if the week is entirely in the next month, but allow weeks that start in prev month
         if (weekStart.getMonth() !== month && weekIndex > 0) {
            if (endOfWeek(weekStart, { weekStartsOn: 1 }).getMonth() !== month) {
                 continue;
@@ -138,37 +179,25 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         
         const weekOfMonth = Math.floor((weekStart.getDate() - 1) / 7);
 
-        const restingPairIndex = weekOfMonth % EMPLOYEE_PAIRS.length;
-        const nightPairIndex = (weekOfMonth + 1) % EMPLOYEE_PAIRS.length;
+        const employeesForRotation = employees.filter(emp => !adminEmployees.includes(emp.id) && !insumosEmployees.includes(emp.id));
+        const pairsForRotation = EMPLOYEE_PAIRS.filter(p => employeesForRotation.some(e => e.id === p[0]));
         
-        const activePairIndices = [0,1,2,3].filter(i => i !== restingPairIndex);
-        const morningAfternoonIndices = activePairIndices.filter(i => i !== nightPairIndex);
+        const nightPairIndex = weekOfMonth % 2;
+        const morningPairIndex = (weekOfMonth + 1) % 2;
 
-        const morningPairIndex = morningAfternoonIndices[0];
-        const afternoonPairIndex = morningAfternoonIndices[1];
-        
         const weeklyAssignments: Record<string, ShiftType> = {};
         
-        // Assign shifts based on the calculated rotation
-        if (EMPLOYEE_PAIRS[restingPairIndex]) {
-            weeklyAssignments[EMPLOYEE_PAIRS[restingPairIndex][0]] = "Descanso";
-            weeklyAssignments[EMPLOYEE_PAIRS[restingPairIndex][1]] = "Descanso";
+        if (pairsForRotation[nightPairIndex]) {
+            weeklyAssignments[pairsForRotation[nightPairIndex][0]] = "Noche";
+            weeklyAssignments[pairsForRotation[nightPairIndex][1]] = "Noche";
         }
-        if (EMPLOYEE_PAIRS[nightPairIndex]) {
-            weeklyAssignments[EMPLOYEE_PAIRS[nightPairIndex][0]] = "Noche";
-            weeklyAssignments[EMPLOYEE_PAIRS[nightPairIndex][1]] = "Noche";
-        }
-        if (EMPLOYEE_PAIRS[morningPairIndex]) {
-            weeklyAssignments[EMPLOYEE_PAIRS[morningPairIndex][0]] = "Mañana";
-            weeklyAssignments[EMPLOYEE_PAIRS[morningPairIndex][1]] = "Mañana";
-        }
-         if (EMPLOYEE_PAIRS[afternoonPairIndex]) {
-            weeklyAssignments[EMPLOYEE_PAIRS[afternoonPairIndex][0]] = "Tarde";
-            weeklyAssignments[EMPLOYEE_PAIRS[afternoonPairIndex][1]] = "Tarde";
+        if (pairsForRotation[morningPairIndex]) {
+            weeklyAssignments[pairsForRotation[morningPairIndex][0]] = "Mañana";
+            weeklyAssignments[pairsForRotation[morningPairIndex][1]] = "Mañana";
         }
 
 
-        employees.forEach((emp) => {
+        employeesForRotation.forEach((emp) => {
             const weeklyShift = weeklyAssignments[emp.id] || "Descanso";
             const weekDays = eachDayOfInterval({
                 start: weekStart,
@@ -242,7 +271,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     ? activeEmployees
     : activeEmployees.filter(e => e.id === selectedEmployeeId)
 
-  const shiftTypesToDisplay = activeEmployees.length >= 8 ? ALL_SHIFT_TYPES.filter(s => s === 'Mañana' || s === 'Tarde' || s === 'Noche' || s === 'Descanso') : ALL_SHIFT_TYPES;
+  const shiftTypesToDisplay = ALL_SHIFT_TYPES;
 
 
   const exportToCsv = () => {
@@ -448,7 +477,3 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
-
-    
-
-    
