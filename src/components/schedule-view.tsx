@@ -2,7 +2,7 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, getWeeksInMonth, startOfWeek, addDays, eachDayOfInterval, endOfWeek, getWeek, isSameDay, differenceInDays } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, eachDayOfInterval, endOfWeek, startOfWeek, addDays, getWeeksInMonth, differenceInDays } from "date-fns"
 import { es } from "date-fns/locale"
 import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, FileDown } from "lucide-react"
 
@@ -45,28 +45,6 @@ interface ScheduleViewProps {
   employees: Employee[]
   initialScheduleData: EmployeeSchedule[]
 }
-
-const INSOMOS_ROTATION_ORDER = [
-  "1", "2", "3", "4", "5", "6", "7", "8"
-];
-
-const NOCHE_ROTATION_ORDER = [
-  ["1", "4"],
-  ["2", "3"],
-  ["7", "8"],
-  ["5", "6"],
-];
-
-
-const shuffleArray = <T>(array: T[]): T[] => {
-  const newArray = [...array];
-  for (let i = newArray.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
-  }
-  return newArray;
-};
-
 
 export function ScheduleView({ employees: allEmployees, initialScheduleData }: ScheduleViewProps) {
   const [currentDate, setCurrentDate] = React.useState(startOfMonth(new Date()))
@@ -126,8 +104,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const employees = activeEmployees;
-    if (employees.length < 8) return;
-
+    
     const daysInMonth = getDaysInMonth(currentDate);
 
     const newSchedules: EmployeeSchedule[] = employees.map((emp) => ({
@@ -141,110 +118,57 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
 
-    let lastWeekAssignments: Record<string, ShiftType> = {};
-
     for (let weekIndex = 0; weekIndex < weeksInMonthCount; weekIndex++) {
-      let weekStart = addDays(
-        startOfWeek(monthStartDate, { weekStartsOn: 1 }),
-        weekIndex * 7
-      );
+        let weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), weekIndex * 7);
 
-      if (weekStart.getMonth() !== month && weekIndex > 0) {
-        if (endOfWeek(weekStart, { weekStartsOn: 1 }).getMonth() !== month) {
-          continue;
+        if (weekStart.getMonth() !== month && weekIndex > 0) {
+            if (endOfWeek(weekStart, { weekStartsOn: 1 }).getMonth() !== month) {
+                continue;
+            }
         }
-      }
-
-      const weekOfYear = getWeek(weekStart, { weekStartsOn: 1 });
-      const weeklyAssignments: Record<string, ShiftType> = {};
-      let availableEmployeesForWeek = [...employees];
-
-      const assignStrict = (shift: ShiftType, count: number, isFixed = false) => {
-          let assignedEmployees: Employee[] = [];
-          
-          if (isFixed) {
-              let pool = availableEmployeesForWeek;
-              if (shift === "Noche") {
-                  const nocheEmployeeIds = NOCHE_ROTATION_ORDER[(weekOfYear - 1) % NOCHE_ROTATION_ORDER.length];
-                  pool = employees.filter(emp => nocheEmployeeIds.includes(emp.id));
-              } else if (shift === "Insumos") {
-                  const insumosEmployeeId = INSOMOS_ROTATION_ORDER[(weekOfYear - 1) % INSOMOS_ROTATION_ORDER.length];
-                  pool = employees.filter(emp => emp.id === insumosEmployeeId);
-              }
-              assignedEmployees = pool.filter(emp => availableEmployeesForWeek.some(e => e.id === emp.id));
-          } else {
-              let pool = shuffleArray(availableEmployeesForWeek.filter(emp => lastWeekAssignments[emp.id] !== shift));
-              
-              if (pool.length < count) {
-                  pool = shuffleArray(availableEmployeesForWeek);
-              }
-              
-              assignedEmployees = pool.slice(0, count);
-          }
-
-          assignedEmployees.forEach(employee => {
-              weeklyAssignments[employee.id] = shift;
-              availableEmployeesForWeek = availableEmployeesForWeek.filter(
-                  (e) => e.id !== employee.id
-              );
-          });
-      };
-      
-      assignStrict("Noche", 2, true);
-      assignStrict("Insumos", 1, true);
-      assignStrict("Administrativo", 1);
-      assignStrict("Mañana", 2);
-      
-      availableEmployeesForWeek.forEach(emp => {
-        weeklyAssignments[emp.id] = 'Tarde';
-      });
-
-      lastWeekAssignments = weeklyAssignments;
-
-      employees.forEach((emp) => {
-        const weeklyShift = weeklyAssignments[emp.id] || "Descanso";
-        const weekDays = eachDayOfInterval({
-          start: weekStart,
-          end: endOfWeek(weekStart, { weekStartsOn: 1 }),
+        
+        const weeklyAssignments: Record<string, ShiftType> = {};
+        
+        employees.forEach(emp => {
+            const empIdNumber = parseInt(emp.id, 10);
+            if (empIdNumber % 2 === 0) { // N° 2,4,6,8
+                weeklyAssignments[emp.id] = "Administrativo";
+            } else { // N° 1,3,5,7
+                weeklyAssignments[emp.id] = "Insumos";
+            }
         });
 
-        for (const dayDate of weekDays) {
-          if (dayDate.getMonth() !== month) continue;
+        employees.forEach((emp) => {
+            const weeklyShift = weeklyAssignments[emp.id] || "Descanso";
+            const weekDays = eachDayOfInterval({
+                start: weekStart,
+                end: endOfWeek(weekStart, { weekStartsOn: 1 }),
+            });
 
-          const dayOfMonth = dayDate.getDate();
-          const dayOfWeek = dayDate.getDay();
+            for (const dayDate of weekDays) {
+                if (dayDate.getMonth() !== month) continue;
 
-          let dailyShift: ShiftType = weeklyShift;
+                const dayOfMonth = dayDate.getDate();
+                const dayOfWeek = dayDate.getDay();
 
-          if (
-            (weeklyShift === "Mañana" ||
-              weeklyShift === "Tarde" ||
-              weeklyShift === "Insumos") &&
-            dayOfWeek === 0
-          ) {
-            dailyShift = "Descanso";
-          }
-          if (
-            (weeklyShift === "Noche" || weeklyShift === "Administrativo") &&
-            (dayOfWeek === 0 || dayOfWeek === 6)
-          ) {
-            dailyShift = "Descanso";
-          }
-          if (weeklyShift === "Descanso") {
-            dailyShift = "Descanso";
-          }
+                let dailyShift: ShiftType = weeklyShift;
 
-          const empSchedule = newSchedules.find((s) => s.employeeId === emp.id);
-          if (empSchedule) {
-            const dayIndex = empSchedule.schedule.findIndex(
-              (s) => s.day === dayOfMonth
-            );
-            if (dayIndex !== -1) {
-              empSchedule.schedule[dayIndex].shift = dailyShift;
+                if (weeklyShift === "Insumos" && dayOfWeek === 0) { // Domingo
+                    dailyShift = "Descanso";
+                }
+                if (weeklyShift === "Administrativo" && (dayOfWeek === 0 || dayOfWeek === 6)) { // Sábado y Domingo
+                    dailyShift = "Descanso";
+                }
+
+                const empSchedule = newSchedules.find((s) => s.employeeId === emp.id);
+                if (empSchedule) {
+                    const dayIndex = empSchedule.schedule.findIndex((s) => s.day === dayOfMonth);
+                    if (dayIndex !== -1) {
+                        empSchedule.schedule[dayIndex].shift = dailyShift;
+                    }
+                }
             }
-          }
-        }
-      });
+        });
     }
     setSchedules(newSchedules);
     setIsScheduleSaved(false);
@@ -333,7 +257,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
               </Button>
             </div>
             
-            <Button variant="outline" onClick={generateSchedule} disabled={activeEmployees.length < 8 || isGenerationLocked}>
+            <Button variant="outline" onClick={generateSchedule} disabled={isGenerationLocked}>
               <CalendarIcon className="mr-2 h-4 w-4" />
               {isGenerationLocked ? `Generar en ${daysUntilNextGen} días` : 'Generar Horario'}
             </Button>
@@ -492,5 +416,3 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
-
-    
