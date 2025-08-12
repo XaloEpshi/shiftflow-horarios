@@ -126,36 +126,47 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const monthStartDate = startOfMonth(currentDate);
     const weeksInMonthCount = getWeeksInMonth(monthStartDate, { weekStartsOn: 1 });
 
-    const SHIFTS_ROTATION: ShiftType[] = ["Mañana", "Tarde", "Noche"];
-
     for (let weekIndex = 0; weekIndex < weeksInMonthCount; weekIndex++) {
-        let weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), weekIndex * 7);
+        const weekStart = addDays(startOfWeek(monthStartDate, { weekStartsOn: 1 }), weekIndex * 7);
 
+        // Skip if the week is entirely in the next month, but allow weeks that start in prev month
         if (weekStart.getMonth() !== month && weekIndex > 0) {
-            if (endOfWeek(weekStart, { weekStartsOn: 1 }).getMonth() !== month) {
+           if (endOfWeek(weekStart, { weekStartsOn: 1 }).getMonth() !== month) {
                 continue;
             }
         }
         
+        const weekOfMonth = Math.floor((weekStart.getDate() - 1) / 7);
+
+        const restingPairIndex = weekOfMonth % EMPLOYEE_PAIRS.length;
+        const nightPairIndex = (weekOfMonth + 1) % EMPLOYEE_PAIRS.length;
+        
+        const activePairIndices = [0,1,2,3].filter(i => i !== restingPairIndex);
+        const morningAfternoonIndices = activePairIndices.filter(i => i !== nightPairIndex);
+
+        const morningPairIndex = morningAfternoonIndices[0];
+        const afternoonPairIndex = morningAfternoonIndices[1];
+        
         const weeklyAssignments: Record<string, ShiftType> = {};
         
-        const weekOfYear = getWeek(weekStart, {weekStartsOn: 1});
-        const restingPairIndex = (weekOfYear - 1) % EMPLOYEE_PAIRS.length;
-        const activePairs = EMPLOYEE_PAIRS.filter((_, index) => index !== restingPairIndex);
-
-        activePairs.forEach((pair, pairIndex) => {
-            const shiftIndex = (weekOfYear - 1 + pairIndex) % SHIFTS_ROTATION.length;
-            const shift = SHIFTS_ROTATION[shiftIndex];
-            weeklyAssignments[pair[0]] = shift;
-            weeklyAssignments[pair[1]] = shift;
-        });
-
-        // Assign Descanso to the resting pair
-        const restingPair = EMPLOYEE_PAIRS[restingPairIndex];
-        if (restingPair) {
-          weeklyAssignments[restingPair[0]] = "Descanso";
-          weeklyAssignments[restingPair[1]] = "Descanso";
+        // Assign shifts based on the calculated rotation
+        if (EMPLOYEE_PAIRS[restingPairIndex]) {
+            weeklyAssignments[EMPLOYEE_PAIRS[restingPairIndex][0]] = "Descanso";
+            weeklyAssignments[EMPLOYEE_PAIRS[restingPairIndex][1]] = "Descanso";
         }
+        if (EMPLOYEE_PAIRS[nightPairIndex]) {
+            weeklyAssignments[EMPLOYEE_PAIRS[nightPairIndex][0]] = "Noche";
+            weeklyAssignments[EMPLOYEE_PAIRS[nightPairIndex][1]] = "Noche";
+        }
+        if (EMPLOYEE_PAIRS[morningPairIndex]) {
+            weeklyAssignments[EMPLOYEE_PAIRS[morningPairIndex][0]] = "Mañana";
+            weeklyAssignments[EMPLOYEE_PAIRS[morningPairIndex][1]] = "Mañana";
+        }
+         if (EMPLOYEE_PAIRS[afternoonPairIndex]) {
+            weeklyAssignments[EMPLOYEE_PAIRS[afternoonPairIndex][0]] = "Tarde";
+            weeklyAssignments[EMPLOYEE_PAIRS[afternoonPairIndex][1]] = "Tarde";
+        }
+
 
         employees.forEach((emp) => {
             const weeklyShift = weeklyAssignments[emp.id] || "Descanso";
@@ -437,5 +448,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
+
+    
 
     
