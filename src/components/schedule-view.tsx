@@ -149,7 +149,9 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     ? activeEmployees
     : activeEmployees.filter(e => e.id === selectedEmployeeId)
 
-  const shiftTypesToDisplay = ALL_SHIFT_TYPES;
+  const shiftTypesToDisplay = activeEmployees.length === 7 
+    ? ALL_SHIFT_TYPES.filter(s => s !== 'Insumos')
+    : ALL_SHIFT_TYPES;
 
 
   const exportToCsv = () => {

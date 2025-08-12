@@ -1,4 +1,4 @@
-import { getDaysInMonth, startOfMonth, endOfWeek, addDays, eachDayOfInterval, format, getWeek } from 'date-fns';
+import { getDaysInMonth, startOfMonth, eachDayOfInterval, getWeek } from 'date-fns';
 import type { Employee, EmployeeSchedule, ShiftType } from '@/types';
 
 const employees: Employee[] = [
@@ -13,24 +13,61 @@ const employees: Employee[] = [
 ];
 
 const EMPLOYEE_PAIRS: [string, string][] = [
-  ["1", "2"], // Pair 0
-  ["3", "4"], // Pair 1
-  ["5", "6"], // Pair 2
-  ["7", "8"], // Pair 3
+  ["1", "2"],
+  ["3", "4"],
+  ["5", "6"],
+  ["7", "8"],
 ];
 
 export function getEmployees(): Employee[] {
   return employees;
 }
 
-export function generateInitialSchedule(
+const applyWeeklySchedule = (
+  schedules: EmployeeSchedule[],
+  year: number,
+  month: number,
+  weekAssignments: { [employeeId: string]: ShiftType }
+) => {
+  const daysInMonth = getDaysInMonth(new Date(year, month));
+  
+  Object.keys(weekAssignments).forEach(employeeId => {
+    const weeklyShift = weekAssignments[employeeId];
+    const empSchedule = schedules.find(s => s.employeeId === employeeId);
+
+    if (empSchedule) {
+      empSchedule.schedule.forEach(daySchedule => {
+        const dayDate = new Date(year, month, daySchedule.day);
+        const dayOfWeek = dayDate.getDay(); 
+        
+        let dailyShift: ShiftType = weeklyShift;
+        if (weeklyShift === "Noche" && (dayOfWeek === 6 || dayOfWeek === 0)) {
+          dailyShift = "Descanso";
+        } else if ((weeklyShift === "Mañana" || weeklyShift === "Tarde" || weeklyShift === "Insumos") && dayOfWeek === 0) {
+          dailyShift = "Descanso";
+        } else if (weeklyShift === "Administrativo" && (dayOfWeek === 6 || dayOfWeek === 0)) {
+           dailyShift = "Descanso";
+        }
+        
+        const currentWeekNumber = getWeek(dayDate, { weekStartsOn: 1 });
+        const startOfWeekForDay = getWeek(new Date(year, month, 1), { weekStartsOn: 1 });
+        if(currentWeekNumber === getWeek(new Date(year, month, daySchedule.day), {weekStartsOn:1})) {
+            const dayIndex = empSchedule.schedule.findIndex(s => s.day === daySchedule.day);
+            if (dayIndex !== -1) {
+              empSchedule.schedule[dayIndex].shift = dailyShift;
+            }
+        }
+      });
+    }
+  });
+};
+
+const generateFor8Employees = (
   employeeList: Employee[],
   year: number,
   month: number
-): EmployeeSchedule[] {
-  const currentDate = new Date(year, month, 1);
-  const daysInMonth = getDaysInMonth(currentDate);
-
+): EmployeeSchedule[] => {
+  const daysInMonth = getDaysInMonth(new Date(year, month));
   const newSchedules: EmployeeSchedule[] = employeeList.map(emp => ({
     employeeId: emp.id,
     schedule: Array.from({ length: daysInMonth }, (_, i) => ({
@@ -39,60 +76,53 @@ export function generateInitialSchedule(
     })),
   }));
 
-  const monthStartDate = startOfMonth(currentDate);
-  const weeksInMonth = eachDayOfInterval({
+  const monthStartDate = startOfMonth(new Date(year, month));
+  
+  const weeksOfMonth = eachDayOfInterval({
     start: monthStartDate,
-    end: addDays(monthStartDate, daysInMonth - 1),
+    end: new Date(year, month, daysInMonth),
   });
 
-  // Group days by week
-  const weeklySchedule: Record<number, { day: number; dayOfWeek: number }[]> = {};
-  weeksInMonth.forEach(dayDate => {
-    const weekOfYear = getWeek(dayDate, { weekStartsOn: 1 });
-    if (!weeklySchedule[weekOfYear]) {
-      weeklySchedule[weekOfYear] = [];
+  const weeklyScheduleMap: { [week: number]: { day: number, dayOfWeek: number }[] } = {};
+  weeksOfMonth.forEach(day => {
+    const weekOfYear = getWeek(day, { weekStartsOn: 1 });
+    if (!weeklyScheduleMap[weekOfYear]) {
+      weeklyScheduleMap[weekOfYear] = [];
     }
-    weeklySchedule[weekOfYear].push({
-      day: dayDate.getDate(),
-      dayOfWeek: dayDate.getDay(),
-    });
+    weeklyScheduleMap[weekOfYear].push({ day: day.getDate(), dayOfWeek: day.getDay() });
   });
-
-  Object.keys(weeklySchedule).forEach(weekOfYearStr => {
+  
+  Object.keys(weeklyScheduleMap).forEach(weekOfYearStr => {
     const weekOfYear = parseInt(weekOfYearStr, 10);
-    const weekDays = weeklySchedule[weekOfYear];
+    const weekOfMonth = weekOfYear - getWeek(monthStartDate, { weekStartsOn: 1 });
 
-    // Determine the rotation index based on the week number
-    // This creates a 4-week rotation cycle for the pairs
-    const rotationIndex = (weekOfYear - 1) % 4;
+    const rotationIndex = weekOfMonth % 4;
 
     const nightPair = EMPLOYEE_PAIRS[rotationIndex % 4];
     const morningPair = EMPLOYEE_PAIRS[(rotationIndex + 1) % 4];
     const afternoonPair = EMPLOYEE_PAIRS[(rotationIndex + 2) % 4];
     const supportPair = EMPLOYEE_PAIRS[(rotationIndex + 3) % 4];
 
-    const weeklyAssignments: Record<string, ShiftType> = {};
-    
-    // Assign pairs to their weekly roles
-    nightPair.forEach(id => weeklyAssignments[id] = "Noche");
-    morningPair.forEach(id => weeklyAssignments[id] = "Mañana");
-    afternoonPair.forEach(id => weeklyAssignments[id] = "Tarde");
+    const weeklyAssignments: { [employeeId: string]: ShiftType } = {};
+
+    nightPair.forEach(id => (weeklyAssignments[id] = "Noche"));
+    morningPair.forEach(id => (weeklyAssignments[id] = "Mañana"));
+    afternoonPair.forEach(id => (weeklyAssignments[id] = "Tarde"));
     weeklyAssignments[supportPair[0]] = "Administrativo";
     weeklyAssignments[supportPair[1]] = "Insumos";
 
-
-    // Apply the assigned shifts to each day of the week
+    const weekDays = weeklyScheduleMap[weekOfYear];
     weekDays.forEach(({ day, dayOfWeek }) => {
       employeeList.forEach(emp => {
         const weeklyShift = weeklyAssignments[emp.id];
         if (!weeklyShift) return;
 
         let dailyShift: ShiftType = weeklyShift;
-
-        // Apply weekend rest days based on the shift
-        if ((weeklyShift === "Noche" || weeklyShift === "Administrativo") && (dayOfWeek === 6 || dayOfWeek === 0)) {
+        if (weeklyShift === "Noche" && (dayOfWeek === 6 || dayOfWeek === 0)) {
           dailyShift = "Descanso";
         } else if ((weeklyShift === "Mañana" || weeklyShift === "Tarde" || weeklyShift === "Insumos") && dayOfWeek === 0) {
+          dailyShift = "Descanso";
+        } else if (weeklyShift === "Administrativo" && (dayOfWeek === 6 || dayOfWeek === 0)) {
           dailyShift = "Descanso";
         }
 
@@ -108,4 +138,104 @@ export function generateInitialSchedule(
   });
 
   return newSchedules;
+};
+
+const generateFor7Employees = (
+  employeeList: Employee[],
+  year: number,
+  month: number
+): EmployeeSchedule[] => {
+    const daysInMonth = getDaysInMonth(new Date(year, month));
+    const newSchedules: EmployeeSchedule[] = employeeList.map(emp => ({
+        employeeId: emp.id,
+        schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+            day: i + 1,
+            shift: "Descanso",
+        })),
+    }));
+
+    const monthStartDate = startOfMonth(new Date(year, month));
+
+    const weeksOfMonth = eachDayOfInterval({
+        start: monthStartDate,
+        end: new Date(year, month, daysInMonth),
+    });
+
+    const weeklyScheduleMap: { [week: number]: { day: number, dayOfWeek: number }[] } = {};
+    weeksOfMonth.forEach(day => {
+        const weekOfYear = getWeek(day, { weekStartsOn: 1 });
+        if (!weeklyScheduleMap[weekOfYear]) {
+            weeklyScheduleMap[weekOfYear] = [];
+        }
+        weeklyScheduleMap[weekOfYear].push({ day: day.getDate(), dayOfWeek: day.getDay() });
+    });
+
+    const sortedEmployees = [...employeeList].sort((a, b) => parseInt(a.id) - parseInt(b.id));
+
+    Object.keys(weeklyScheduleMap).forEach(weekOfYearStr => {
+        const weekOfYear = parseInt(weekOfYearStr, 10);
+        const weekOfMonth = weekOfYear - getWeek(monthStartDate, { weekStartsOn: 1 });
+        
+        const weeklyAssignments: { [employeeId: string]: ShiftType } = {};
+        
+        const adminIndex = weekOfMonth % 7;
+        const adminEmployee = sortedEmployees[adminIndex];
+        weeklyAssignments[adminEmployee.id] = "Administrativo";
+
+        const remainingEmployees = sortedEmployees.filter(emp => emp.id !== adminEmployee.id);
+        const rotationPairs = [
+            [remainingEmployees[0].id, remainingEmployees[1].id],
+            [remainingEmployees[2].id, remainingEmployees[3].id],
+            [remainingEmployees[4].id, remainingEmployees[5].id],
+        ];
+
+        const shiftRotationIndex = weekOfMonth % 3;
+        const nightPair = rotationPairs[shiftRotationIndex % 3];
+        const morningPair = rotationPairs[(shiftRotationIndex + 1) % 3];
+        const afternoonPair = rotationPairs[(shiftRotationIndex + 2) % 3];
+
+        nightPair.forEach(id => (weeklyAssignments[id] = "Noche"));
+        morningPair.forEach(id => (weeklyAssignments[id] = "Mañana"));
+        afternoonPair.forEach(id => (weeklyAssignments[id] = "Tarde"));
+
+        const weekDays = weeklyScheduleMap[weekOfYear];
+        weekDays.forEach(({ day, dayOfWeek }) => {
+            employeeList.forEach(emp => {
+                const weeklyShift = weeklyAssignments[emp.id];
+                if (!weeklyShift) return;
+
+                let dailyShift: ShiftType = weeklyShift;
+                 if (weeklyShift === "Noche" && (dayOfWeek === 6 || dayOfWeek === 0)) {
+                    dailyShift = "Descanso";
+                } else if ((weeklyShift === "Mañana" || weeklyShift === "Tarde") && dayOfWeek === 0) {
+                    dailyShift = "Descanso";
+                } else if (weeklyShift === "Administrativo" && (dayOfWeek === 6 || dayOfWeek === 0)) {
+                    dailyShift = "Descanso";
+                }
+
+                const empSchedule = newSchedules.find(s => s.employeeId === emp.id);
+                if (empSchedule) {
+                    const dayIndex = empSchedule.schedule.findIndex(s => s.day === day);
+                    if (dayIndex !== -1) {
+                        empSchedule.schedule[dayIndex].shift = dailyShift;
+                    }
+                }
+            });
+        });
+    });
+
+    return newSchedules;
+};
+
+
+export function generateInitialSchedule(
+  employeeList: Employee[],
+  year: number,
+  month: number
+): EmployeeSchedule[] {
+  if (employeeList.length === 7) {
+    return generateFor7Employees(employeeList, year, month);
+  }
+  
+  return generateFor8Employees(employeeList, year, month);
 }
