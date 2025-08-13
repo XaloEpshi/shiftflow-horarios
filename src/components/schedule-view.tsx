@@ -2,15 +2,15 @@
 "use client"
 
 import * as React from "react"
-import { getDaysInMonth, format, addMonths, subMonths, startOfMonth, eachDayOfInterval, endOfWeek, startOfWeek, addDays, getWeek, differenceInDays, getWeeksInMonth } from "date-fns"
+import { getDaysInMonth, format, addMonths, subMonths, startOfMonth } from "date-fns"
 import { es } from "date-fns/locale"
-import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, FileDown } from "lucide-react"
+import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, FileDown, MoreVertical } from "lucide-react"
 
 import type { Employee, EmployeeSchedule, ShiftType } from "@/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -53,16 +53,21 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
   const [activeEmployeeIds, setActiveEmployeeIds] = React.useState<Set<string>>(new Set(allEmployees.map(e => e.id)));
   
-  const [isScheduleSaved, setIsScheduleSaved] = React.useState(false);
-  const [lastSaveDate, setLastSaveDate] = React.useState<Date | null>(null);
-
   const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
   
-  const getScheduleStorageKey = (date: Date) => `schedule-${date.getFullYear()}-${date.getMonth()}`;
-  const getLockoutStorageKey = (date: Date) => `schedule-lockout-${date.getFullYear()}-${date.getMonth()}`;
+  const generateSchedule = React.useCallback(() => {
+    const newSchedules = generateInitialSchedule(
+        activeEmployees,
+        currentDate.getFullYear(),
+        currentDate.getMonth()
+    );
+    setSchedules(newSchedules);
+  }, [currentDate, activeEmployees]);
+  
+  React.useEffect(() => {
+    generateSchedule();
+  }, [activeEmployeeIds, currentDate, generateSchedule]);
 
-  const daysUntilNextGen = lastSaveDate ? 15 - differenceInDays(new Date(), lastSaveDate) : 0;
-  const isGenerationLocked = daysUntilNextGen > 0;
 
   const handleShiftChange = (employeeId: string, day: number, newShift: ShiftType) => {
     setSchedules(prevSchedules =>
@@ -76,7 +81,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         return empSchedule
       })
     )
-    setIsScheduleSaved(false);
   }
   
   const clearSchedule = () => {
@@ -92,65 +96,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   };
   
   const saveSchedule = () => {
-    const scheduleKey = getScheduleStorageKey(currentDate);
-    const lockoutKey = getLockoutStorageKey(currentDate);
-    const now = new Date();
-
-    localStorage.setItem(scheduleKey, JSON.stringify(schedules));
-    localStorage.setItem(lockoutKey, now.toISOString());
-    setLastSaveDate(now);
-    setIsScheduleSaved(true);
+    // Logic to save schedule, maybe to localStorage or an API
+    console.log("Saving schedules:", schedules)
+    // You might want to add some user feedback here, like a toast notification
   }
-
-  const generateSchedule = React.useCallback(() => {
-    const newSchedules = generateInitialSchedule(
-        activeEmployees,
-        currentDate.getFullYear(),
-        currentDate.getMonth()
-    );
-    setSchedules(newSchedules);
-    setIsScheduleSaved(false);
-  }, [currentDate, activeEmployees]);
-  
-  React.useEffect(() => {
-    const scheduleKey = getScheduleStorageKey(currentDate);
-    const lockoutKey = getLockoutStorageKey(currentDate);
-    
-    const savedSchedules = localStorage.getItem(scheduleKey);
-    const savedLockoutDate = localStorage.getItem(lockoutKey);
-
-    if (savedLockoutDate) {
-        setLastSaveDate(new Date(savedLockoutDate));
-        setIsScheduleSaved(true);
-    } else {
-        setLastSaveDate(null);
-        setIsScheduleSaved(false);
-    }
-
-    if (savedSchedules) {
-      try {
-        const parsed = JSON.parse(savedSchedules);
-        // Basic validation
-        if (Array.isArray(parsed) && parsed.every(p => p.employeeId && Array.isArray(p.schedule))) {
-           const activeSavedIds = new Set(parsed.map((p: any) => p.employeeId));
-            if (activeSavedIds.size === activeEmployeeIds.size && [...activeSavedIds].every(id => activeEmployeeIds.has(id))) {
-                setSchedules(parsed);
-                return;
-            }
-        }
-         // If validation fails or active employees changed, regenerate
-        generateSchedule();
-
-      } catch (e) {
-        console.error("Failed to parse saved schedules, resetting.", e);
-        localStorage.removeItem(scheduleKey);
-        generateSchedule();
-      }
-    } else {
-      generateSchedule();
-    }
-  }, [currentDate, activeEmployeeIds, generateSchedule]);
-
 
   const filteredEmployees = selectedEmployeeId === "all"
     ? activeEmployees
@@ -190,115 +139,156 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   return (
     <Card className="w-full shadow-lg">
       <CardHeader>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <CardTitle className="text-2xl font-headline">Horario de Trabajo</CardTitle>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={() => setCurrentDate(subMonths(currentDate, 1))}>
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <h3 className="text-lg font-semibold text-center w-40 capitalize">
-                {format(currentDate, "MMMM yyyy", { locale: es })}
-              </h3>
-              <Button variant="outline" size="icon" onClick={() => setCurrentDate(addMonths(currentDate, 1))}>
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            <Button variant="outline" onClick={generateSchedule} disabled={isGenerationLocked}>
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {isGenerationLocked ? `Generar en ${daysUntilNextGen} días` : 'Generar Horario'}
-            </Button>
-
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                 <Button variant="outline" disabled={isScheduleSaved}>
-                    <Icons.save className="mr-2 h-4 w-4" />
-                    Guardar
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Al guardar este horario, no podrás generar uno nuevo para este mes durante los próximos 15 días. ¿Estás seguro de que quieres continuar?
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={saveSchedule}>
-                    Guardar Horario
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            
-             <Button variant="outline" onClick={clearSchedule}>
-                <Icons.trash className="mr-2 h-4 w-4" />
-                Limpiar
-            </Button>
-
-            <Button onClick={exportToCsv} variant="outline">
-              <FileDown className="mr-2 h-4 w-4" />
-              Exportar
-            </Button>
-            <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-              <SelectTrigger className="w-full sm:w-[200px]">
-                <SelectValue placeholder="Filtrar empleado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all"><Users className="inline-block w-4 h-4 mr-2"/>Todos los empleados</SelectItem>
-                {activeEmployees.map(e => (
-                  <SelectItem key={e.id} value={e.id}><User className="inline-block w-4 h-4 mr-2"/>{e.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Sheet>
-                <SheetTrigger asChild>
-                    <Button variant="outline" size="icon">
-                        <Settings className="w-4 h-4" />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+            <CardTitle className="text-2xl font-headline">Horario de Trabajo</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="icon" onClick={() => setCurrentDate(subMonths(currentDate, 1))}>
+                        <ChevronLeft className="w-4 h-4" />
                     </Button>
-                </SheetTrigger>
-                <SheetContent>
-                    <SheetHeader>
-                        <SheetTitle>Gestionar Empleados</SheetTitle>
-                    </SheetHeader>
-                    <div className="grid gap-4 py-4">
-                       {allEmployees.map(employee => (
-                         <div key={employee.id} className="flex items-center space-x-2">
-                           <Checkbox
-                             id={`employee-${employee.id}`}
-                             checked={activeEmployeeIds.has(employee.id)}
-                             onCheckedChange={(checked) => {
-                               setActiveEmployeeIds(prev => {
-                                 const newSet = new Set(prev);
-                                 if (checked) {
-                                   newSet.add(employee.id);
-                                 } else {
-                                   if (newSet.size > 1) { // Prevent removing the last employee
-                                     newSet.delete(employee.id);
-                                   }
-                                 }
-                                 
-                                 // Clear saved data for the current month when employee list changes
-                                 const scheduleKey = getScheduleStorageKey(currentDate);
-                                 const lockoutKey = getLockoutStorageKey(currentDate);
-                                 localStorage.removeItem(scheduleKey);
-                                 localStorage.removeItem(lockoutKey);
-                                 setIsScheduleSaved(false);
-                                 setLastSaveDate(null);
-                                 
-                                 return newSet;
-                               });
-                             }}
-                           />
-                           <Label htmlFor={`employee-${employee.id}`}>{employee.name}</Label>
-                         </div>
-                       ))}
-                    </div>
-                </SheetContent>
-            </Sheet>
-          </div>
+                    <h3 className="text-lg font-semibold text-center w-40 capitalize">
+                        {format(currentDate, "MMMM yyyy", { locale: es })}
+                    </h3>
+                    <Button variant="outline" size="icon" onClick={() => setCurrentDate(addMonths(currentDate, 1))}>
+                        <ChevronRight className="w-4 h-4" />
+                    </Button>
+                </div>
+            
+                <div className="hidden md:flex items-center gap-2">
+                     <Button variant="outline" onClick={generateSchedule}>
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        Generar
+                     </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                         <Button variant="outline">
+                            <Icons.save className="mr-2 h-4 w-4" />
+                            Guardar
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
+                          <AlertDialogDescription>
+                           Esta acción guardará el horario actual. ¿Estás seguro?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction onClick={saveSchedule}>
+                            Guardar
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                     <Button variant="outline" onClick={clearSchedule}>
+                        <Icons.trash className="mr-2 h-4 w-4" />
+                        Limpiar
+                    </Button>
+                    <Button onClick={exportToCsv} variant="outline">
+                      <FileDown className="mr-2 h-4 w-4" />
+                      Exportar
+                    </Button>
+                </div>
+
+                <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
+                  <SelectTrigger className="w-full sm:w-[200px]">
+                    <SelectValue placeholder="Filtrar empleado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all"><Users className="inline-block w-4 h-4 mr-2"/>Todos los empleados</SelectItem>
+                    {activeEmployees.map(e => (
+                      <SelectItem key={e.id} value={e.id}><User className="inline-block w-4 h-4 mr-2"/>{e.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <Sheet>
+                    <SheetTrigger asChild>
+                        <Button variant="outline" size="icon">
+                            <Settings className="w-4 h-4" />
+                        </Button>
+                    </SheetTrigger>
+                    <SheetContent>
+                        <SheetHeader>
+                            <SheetTitle>Gestionar Empleados</SheetTitle>
+                        </SheetHeader>
+                        <div className="grid gap-4 py-4">
+                           {allEmployees.map(employee => (
+                             <div key={employee.id} className="flex items-center space-x-2">
+                               <Checkbox
+                                 id={`employee-${employee.id}`}
+                                 checked={activeEmployeeIds.has(employee.id)}
+                                 onCheckedChange={(checked) => {
+                                   setActiveEmployeeIds(prev => {
+                                     const newSet = new Set(prev);
+                                     if (checked) {
+                                       newSet.add(employee.id);
+                                     } else {
+                                       if (newSet.size > 1) { 
+                                         newSet.delete(employee.id);
+                                       }
+                                     }
+                                     return newSet;
+                                   });
+                                 }}
+                               />
+                               <Label htmlFor={`employee-${employee.id}`}>{employee.name}</Label>
+                             </div>
+                           ))}
+                        </div>
+                    </SheetContent>
+                </Sheet>
+
+                <div className="md:hidden">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="icon">
+                                <MoreVertical className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={generateSchedule}>
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                Generar Horario
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                 <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                     <div className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
+                                        <Icons.save className="mr-2 h-4 w-4" />
+                                        Guardar
+                                     </div>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Esta acción guardará el horario actual. ¿Estás seguro?
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction onClick={saveSchedule}>
+                                        Guardar
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={clearSchedule}>
+                                <Icons.trash className="mr-2 h-4 w-4" />
+                                Limpiar
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={exportToCsv}>
+                                <FileDown className="mr-2 h-4 w-4" />
+                                Exportar
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            </div>
         </div>
       </CardHeader>
       <CardContent>
