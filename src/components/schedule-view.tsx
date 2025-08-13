@@ -296,7 +296,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
           <Table className="min-w-full border-collapse">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="sticky left-0 z-10 p-2 text-sm font-bold text-left bg-card w-36">Empleado</TableHead>
+                <TableHead className="sticky left-0 z-20 p-2 text-sm font-bold text-left bg-card w-36">Empleado</TableHead>
                 {Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => i + 1).map(day => (
                   <TableHead key={day} className="p-2 text-sm font-bold text-center w-28">
                     {day}
@@ -357,5 +357,3 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     </Card>
   )
 }
-
-    
