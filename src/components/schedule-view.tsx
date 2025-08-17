@@ -48,9 +48,10 @@ const shiftVariantMap: Record<ShiftType, string> = {
 interface ScheduleViewProps {
   employees: Employee[]
   initialScheduleData: EmployeeSchedule[]
+  isAdmin: boolean
 }
 
-export function ScheduleView({ employees: allEmployees, initialScheduleData }: ScheduleViewProps) {
+export function ScheduleView({ employees: allEmployees, initialScheduleData, isAdmin }: ScheduleViewProps) {
   const [currentDate, setCurrentDate] = React.useState(startOfMonth(new Date()))
   const [schedules, setSchedules] = React.useState<EmployeeSchedule[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
@@ -99,7 +100,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     };
 
     fetchSchedule();
-  }, [currentDate, activeEmployeeIds.size, generateBlankSchedule]);
+  }, [currentDate, activeEmployeeIds.size, generateBlankSchedule, toast]);
 
   const generateSchedule = React.useCallback(() => {
     const newSchedules = generateInitialSchedule(
@@ -201,36 +202,40 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 </div>
             
                 <div className="hidden md:flex items-center gap-2">
-                     <Button variant="outline" onClick={generateSchedule} disabled={isSaving}>
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        Generar
-                     </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                         <Button variant="outline" disabled={isSaving}>
-                            <Icons.save className="mr-2 h-4 w-4" />
-                            Guardar
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
-                          <AlertDialogDescription>
-                           Esta acción guardará el horario actual en la nube. ¿Estás seguro?
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleSaveSchedule}>
-                            Guardar
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                     <Button variant="outline" onClick={clearSchedule} disabled={isSaving}>
-                        <Icons.trash className="mr-2 h-4 w-4" />
-                        Limpiar
-                    </Button>
+                     {isAdmin && (
+                        <>
+                            <Button variant="outline" onClick={generateSchedule} disabled={isSaving}>
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                Generar
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                 <Button variant="outline" disabled={isSaving}>
+                                    <Icons.save className="mr-2 h-4 w-4" />
+                                    Guardar
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                   Esta acción guardará el horario actual en la nube. ¿Estás seguro?
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleSaveSchedule}>
+                                    Guardar
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                             <Button variant="outline" onClick={clearSchedule} disabled={isSaving}>
+                                <Icons.trash className="mr-2 h-4 w-4" />
+                                Limpiar
+                            </Button>
+                        </>
+                     )}
                     <Button onClick={exportToCsv} variant="outline" disabled={isSaving}>
                       <FileDown className="mr-2 h-4 w-4" />
                       Exportar
@@ -249,48 +254,50 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                   </SelectContent>
                 </Select>
                 
-                <Sheet>
-                    <SheetTrigger asChild>
-                        <Button variant="outline" size="icon">
-                            <Settings className="w-4 h-4" />
-                        </Button>
-                    </SheetTrigger>
-                    <SheetContent>
-                        <SheetHeader>
-                            <SheetTitle>Gestionar Empleados</SheetTitle>
-                        </SheetHeader>
-                        <div className="grid gap-4 py-4">
-                           {allEmployees.map(employee => (
-                             <div key={employee.id} className="flex items-center space-x-2">
-                               <Checkbox
-                                 id={`employee-${employee.id}`}
-                                 checked={activeEmployeeIds.has(employee.id)}
-                                 onCheckedChange={(checked) => {
-                                   setActiveEmployeeIds(prev => {
-                                     const newSet = new Set(prev);
-                                     if (checked) {
-                                       newSet.add(employee.id);
-                                     } else {
-                                       if (newSet.size > 7) { // Prevent disabling all employees
-                                         newSet.delete(employee.id);
+                {isAdmin && (
+                  <Sheet>
+                      <SheetTrigger asChild>
+                          <Button variant="outline" size="icon">
+                              <Settings className="w-4 h-4" />
+                          </Button>
+                      </SheetTrigger>
+                      <SheetContent>
+                          <SheetHeader>
+                              <SheetTitle>Gestionar Empleados</SheetTitle>
+                          </SheetHeader>
+                          <div className="grid gap-4 py-4">
+                             {allEmployees.map(employee => (
+                               <div key={employee.id} className="flex items-center space-x-2">
+                                 <Checkbox
+                                   id={`employee-${employee.id}`}
+                                   checked={activeEmployeeIds.has(employee.id)}
+                                   onCheckedChange={(checked) => {
+                                     setActiveEmployeeIds(prev => {
+                                       const newSet = new Set(prev);
+                                       if (checked) {
+                                         newSet.add(employee.id);
                                        } else {
-                                          toast({
-                                            variant: "destructive",
-                                            title: "Operación no permitida",
-                                            description: "Debe haber al menos 7 empleados activos.",
-                                          });
+                                         if (newSet.size > 7) { 
+                                           newSet.delete(employee.id);
+                                         } else {
+                                            toast({
+                                              variant: "destructive",
+                                              title: "Operación no permitida",
+                                              description: "Debe haber al menos 7 empleados activos.",
+                                            });
+                                         }
                                        }
-                                     }
-                                     return newSet;
-                                   });
-                                 }}
-                               />
-                               <Label htmlFor={`employee-${employee.id}`}>{employee.name}</Label>
-                             </div>
-                           ))}
-                        </div>
-                    </SheetContent>
-                </Sheet>
+                                       return newSet;
+                                     });
+                                   }}
+                                 />
+                                 <Label htmlFor={`employee-${employee.id}`}>{employee.name}</Label>
+                               </div>
+                             ))}
+                          </div>
+                      </SheetContent>
+                  </Sheet>
+                )}
 
                 <div className="md:hidden">
                     <DropdownMenu>
@@ -300,39 +307,43 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={generateSchedule} disabled={isSaving}>
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                Generar Horario
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                 <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                     <div className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
-                                        <Icons.save className="mr-2 h-4 w-4" />
-                                        Guardar
-                                     </div>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Esta acción guardará el horario actual en la nube. ¿Estás seguro?
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleSaveSchedule}>
-                                        Guardar
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={clearSchedule} disabled={isSaving}>
-                                <Icons.trash className="mr-2 h-4 w-4" />
-                                Limpiar
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
+                            {isAdmin && (
+                                <>
+                                    <DropdownMenuItem onClick={generateSchedule} disabled={isSaving}>
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        Generar Horario
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                         <AlertDialog>
+                                          <AlertDialogTrigger asChild>
+                                             <div className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
+                                                <Icons.save className="mr-2 h-4 w-4" />
+                                                Guardar
+                                             </div>
+                                          </AlertDialogTrigger>
+                                          <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                              <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
+                                              <AlertDialogDescription>
+                                                Esta acción guardará el horario actual en la nube. ¿Estás seguro?
+                                              </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                              <AlertDialogAction onClick={handleSaveSchedule}>
+                                                Guardar
+                                              </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                          </AlertDialogContent>
+                                        </AlertDialog>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={clearSchedule} disabled={isSaving}>
+                                        <Icons.trash className="mr-2 h-4 w-4" />
+                                        Limpiar
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                </>
+                            )}
                             <DropdownMenuItem onClick={exportToCsv} disabled={isSaving}>
                                 <FileDown className="mr-2 h-4 w-4" />
                                 Exportar
@@ -376,10 +387,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                       return (
                         <TableCell key={day} className={cn("p-1.5 text-center border-l")}>
                           <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
+                            <DropdownMenuTrigger asChild disabled={!isAdmin}>
                               <Button
                                 variant="ghost"
-                                className={cn("w-full h-full p-1 text-xs font-semibold border", shiftVariantMap[shift])}
+                                className={cn("w-full h-full p-1 text-xs font-semibold border", shiftVariantMap[shift], !isAdmin && "pointer-events-none opacity-80")}
                                 disabled={isSaving}
                               >
                                 {shift}
