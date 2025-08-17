@@ -1,4 +1,4 @@
-
+//Gestiona y visualiza los horarios de trabajo.
 "use client"
 
 import * as React from "react"

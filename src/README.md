@@ -1,4 +1,4 @@
-# Horario CPW: Planificador de Turnos de Empleados
+# Horario CPW: Planificador de horario mensual.
 
 Horario CPW es una aplicación web construida con Next.js y React para la gestión y visualización de horarios de trabajo de empleados. Permite generar rotaciones de turnos complejas de manera automática, adaptándose dinámicamente al número de empleados activos.
 
