@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { getAuth, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth"
+import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label"
 import { Icons } from "@/components/icons"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
-import { Separator } from "@/components/ui/separator"
+import { auth } from "@/lib/firebase"
 
 export default function SignupPage() {
   const [email, setEmail] = React.useState("")
@@ -27,7 +27,6 @@ export default function SignupPage() {
   const [isGoogleLoading, setIsGoogleLoading] = React.useState(false)
   const router = useRouter()
   const { toast } = useToast()
-  const auth = getAuth()
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
