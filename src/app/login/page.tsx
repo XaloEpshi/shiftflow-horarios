@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth"
+import { getAuth, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,18 +17,20 @@ import { Label } from "@/components/ui/label"
 import { Icons } from "@/components/icons"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
+import { Separator } from "@/components/ui/separator"
 
 export default function LoginPage() {
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = React.useState(false)
   const router = useRouter()
   const { toast } = useToast()
+  const auth = getAuth()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    const auth = getAuth()
     try {
       await signInWithEmailAndPassword(auth, email, password)
       router.push("/")
@@ -36,10 +38,27 @@ export default function LoginPage() {
       toast({
         variant: "destructive",
         title: "Error al iniciar sesión",
-        description: error.message,
+        description: "El correo o la contraseña son incorrectos.",
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    setIsGoogleLoading(true);
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      router.push("/");
+    } catch (error: any) {
+       toast({
+        variant: "destructive",
+        title: "Error con Google",
+        description: "No se pudo iniciar sesión con Google. Inténtalo de nuevo.",
+      });
+    } finally {
+      setIsGoogleLoading(false);
     }
   }
 
@@ -55,7 +74,7 @@ export default function LoginPage() {
             Ingresa a tu cuenta para ver el horario.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-4">
           <form onSubmit={handleLogin} className="grid gap-4">
             <div className="grid gap-2">
               <Label htmlFor="email">Correo Electrónico</Label>
@@ -66,7 +85,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={isLoading}
+                disabled={isLoading || isGoogleLoading}
               />
             </div>
             <div className="grid gap-2">
@@ -77,13 +96,31 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
+                disabled={isLoading || isGoogleLoading}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
               {isLoading ? "Cargando..." : "Iniciar Sesión"}
             </Button>
           </form>
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="px-2 bg-background text-muted-foreground">
+                O continuar con
+              </span>
+            </div>
+          </div>
+           <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading || isGoogleLoading}>
+            {isGoogleLoading ? (
+              <Icons.spinner className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Icons.google className="w-4 h-4 mr-2" />
+            )}
+            Google
+          </Button>
         </CardContent>
         <CardFooter className="flex flex-col text-sm">
             <p>¿No tienes una cuenta? <Link href="/signup" className="underline">Regístrate</Link></p>
