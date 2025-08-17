@@ -1,6 +1,6 @@
-# ShiftFlow: Planificador de Turnos de Empleados
+# Horario CPW: Planificador de Turnos de Empleados
 
-ShiftFlow es una aplicación web construida con Next.js y React para la gestión y visualización de horarios de trabajo de empleados. Permite generar rotaciones de turnos complejas de manera automática, adaptándose dinámicamente al número de empleados activos.
+Horario CPW es una aplicación web construida con Next.js y React para la gestión y visualización de horarios de trabajo de empleados. Permite generar rotaciones de turnos complejas de manera automática, adaptándose dinámicamente al número de empleados activos.
 
 ## Características Principales
 
@@ -60,7 +60,7 @@ A continuación se muestra la estructura de carpetas y archivos completa del pro
 │   │   │   ├── switch.tsx
 │   │   │   ├── table.tsx
 │   │   │   ├── tabs.tsx
-│   │   │   ├── textarea.tsx
+│   ¡   │   │   ├── textarea.tsx
 │   │   │   ├── toast.tsx
 │   │   │   ├── toaster.tsx
 │   │   │   └── tooltip.tsx

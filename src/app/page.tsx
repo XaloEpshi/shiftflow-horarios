@@ -13,7 +13,7 @@ export default function Home() {
           <div className="p-1.5 rounded-lg bg-primary/20">
              <Icons.logo className="w-6 h-6 text-primary" />
           </div>
-          <h1 className="text-xl font-bold tracking-tighter font-headline text-foreground">ShiftFlow</h1>
+          <h1 className="text-xl font-bold tracking-tighter font-headline text-foreground">Horario CPW</h1>
         </div>
       </header>
       <main className="flex-1 p-4 md:p-6 lg:p-8">

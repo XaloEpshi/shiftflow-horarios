@@ -3,7 +3,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: 'ShiftFlow',
+  title: 'Horario CPW',
   description: 'Employee shift scheduling application.',
 };
 
