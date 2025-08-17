@@ -14,7 +14,7 @@ ShiftFlow es una aplicación web construida con Next.js y React para la gestión
 
 ## Mapa Conceptual del Proyecto
 
-A continuación se muestra la estructura de carpetas y archivos más importantes del proyecto, junto con una breve descripción de su propósito.
+A continuación se muestra la estructura de carpetas y archivos completa del proyecto, junto con una breve descripción de su propósito.
 
 ```
 /
@@ -28,7 +28,43 @@ A continuación se muestra la estructura de carpetas y archivos más importantes
 │   │   └── page.tsx        # Componente de la página de inicio que renderiza el planificador.
 │   │
 │   ├── components/
-│   │   ├── ui/             # Componentes de UI preconstruidos de ShadCN (Botones, Cards, etc.).
+│   │   ├── ui/             # Componentes de UI preconstruidos de ShadCN.
+│   │   │   ├── accordion.tsx
+│   │   │   ├── alert-dialog.tsx
+│   │   │   ├── alert.tsx
+│   │   │   ├── avatar.tsx
+│   │   │   ├── badge.tsx
+│   │   │   ├── button.tsx
+│   │   │   ├── calendar.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── carousel.tsx
+│   │   │   ├── chart.tsx
+│   │   │   ├── checkbox.tsx
+│   │   │   ├── collapsible.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── dropdown-menu.tsx
+│   │   │   ├── form.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── label.tsx
+│   │   │   ├── menubar.tsx
+│   │   │   ├── popover.tsx
+│   │   │   ├── progress.tsx
+│   │   │   ├── radio-group.tsx
+│   │   │   ├── scroll-area.tsx
+│   │   │   ├── select.tsx
+│   │   │   ├── separator.tsx
+│   │   │   ├── sheet.tsx
+│   │   │   ├── sidebar.tsx
+│   │   │   ├── skeleton.tsx
+│   │   │   ├── slider.tsx
+│   │   │   ├── switch.tsx
+│   │   │   ├── table.tsx
+│   │   │   ├── tabs.tsx
+│   │   │   ├── textarea.tsx
+│   │   │   ├── toast.tsx
+│   │   │   ├── toaster.tsx
+│   │   │   └── tooltip.tsx
+│   │   │
 │   │   ├── icons.tsx       # Definición de iconos personalizados para la aplicación.
 │   │   └── schedule-view.tsx # Componente principal que contiene toda la lógica de la interfaz.
 │   │
@@ -43,6 +79,13 @@ A continuación se muestra la estructura de carpetas y archivos más importantes
 │   └── types/
 │       └── index.ts        # Definiciones de tipos de TypeScript para el proyecto (Employee, ShiftType, etc.).
 │
+├── .gitignore              # Archivos y carpetas ignorados por Git.
+├── components.json         # Configuración para la CLI de ShadCN/UI.
+├── next.config.ts          # Configuración principal de Next.js.
+├── package-lock.json       # Lockfile de las dependencias de NPM.
+├── package.json            # Lista de dependencias y scripts del proyecto.
+├── postcss.config.js       # Configuración de PostCSS.
+├── README.md               # Este archivo.
 ├── tailwind.config.ts      # Configuración del framework de estilos Tailwind CSS.
-└── next.config.ts          # Configuración principal de Next.js.
+└── tsconfig.json           # Configuración del compilador de TypeScript.
 ```
