@@ -4,7 +4,7 @@
 import * as React from "react"
 import { getDaysInMonth, format, addMonths, subMonths, startOfMonth } from "date-fns"
 import { es } from "date-fns/locale"
-import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, FileDown, MoreVertical } from "lucide-react"
+import { ChevronLeft, ChevronRight, Users, User, Calendar as CalendarIcon, Settings, MoreVertical, Lock, Unlock } from "lucide-react"
 
 import type { Employee, EmployeeSchedule, ShiftType } from "@/types"
 import { cn } from "@/lib/utils"
@@ -57,6 +57,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const [activeEmployeeIds, setActiveEmployeeIds] = React.useState<Set<string>>(new Set(allEmployees.map(e => e.id)));
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isScheduleLocked, setIsScheduleLocked] = React.useState(false);
   const { toast } = useToast()
 
   const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
@@ -82,12 +83,15 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
         const savedSchedules = await loadSchedule(scheduleId);
         if (savedSchedules) {
           setSchedules(savedSchedules);
+          setIsScheduleLocked(true);
         } else {
           setSchedules(generateBlankSchedule());
+          setIsScheduleLocked(false);
         }
       } catch (error) {
         console.error("Failed to read from Firestore", error);
         setSchedules(generateBlankSchedule());
+        setIsScheduleLocked(false);
         toast({
           variant: "destructive",
           title: "Error al Cargar",
@@ -133,9 +137,10 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     const scheduleId = getScheduleId(currentDate);
     try {
       await saveSchedule(scheduleId, schedules);
+      setIsScheduleLocked(true);
       toast({
         title: "Horario Guardado",
-        description: "El horario actual ha sido guardado en la nube.",
+        description: "El horario actual ha sido guardado y bloqueado.",
       });
     } catch (error) {
       console.error("Failed to save to Firestore", error);
@@ -157,30 +162,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     ? ALL_SHIFT_TYPES.filter(s => s !== 'Insumos')
     : ALL_SHIFT_TYPES;
 
-  const exportToCsv = () => {
-    const headers = ["Empleado", ...Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => `${i + 1}`)];
-    const rows = filteredEmployees.map(employee => {
-      const empSchedule = schedules.find(s => s.employeeId === employee.id);
-      if (!empSchedule) return [employee.name];
-      const shifts = Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => {
-        return empSchedule.schedule.find(s => s.day === i + 1)?.shift || 'Descanso';
-      });
-      return [employee.name, ...shifts];
-    });
-
-    let csvContent = "data:text/csv;charset=utf-8," 
-      + headers.join(",") + "\n" 
-      + rows.map(e => e.join(",")).join("\n");
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const monthName = format(currentDate, "MMMM-yyyy", { locale: es });
-    link.setAttribute("download", `horario-${monthName}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const isDisabled = isSaving || isScheduleLocked;
 
   return (
     <Card className="w-full shadow-lg">
@@ -201,14 +183,14 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 </div>
             
                 <div className="hidden md:flex items-center gap-2">
-                    <Button variant="outline" onClick={generateSchedule} disabled={isSaving}>
+                    <Button variant="outline" onClick={generateSchedule} disabled={isDisabled}>
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         Generar
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                         <Button variant="outline" disabled={isSaving}>
-                            <Icons.save className="mr-2 h-4 w-4" />
+                         <Button variant="outline" disabled={isDisabled}>
+                           {isScheduleLocked ? <Lock className="mr-2 h-4 w-4"/> : <Icons.save className="mr-2 h-4 w-4" />}
                             Guardar
                         </Button>
                       </AlertDialogTrigger>
@@ -216,7 +198,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                         <AlertDialogHeader>
                           <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
                           <AlertDialogDescription>
-                           Esta acción guardará el horario actual en la nube. ¿Estás seguro?
+                           Esta acción guardará y bloqueará el horario actual en la nube. No podrás realizar más cambios. ¿Estás seguro?
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -227,13 +209,9 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                     <Button variant="outline" onClick={clearSchedule} disabled={isSaving}>
+                     <Button variant="outline" onClick={clearSchedule} disabled={isDisabled}>
                         <Icons.trash className="mr-2 h-4 w-4" />
                         Limpiar
-                    </Button>
-                    <Button onClick={exportToCsv} variant="outline" disabled={isSaving}>
-                      <FileDown className="mr-2 h-4 w-4" />
-                      Exportar
                     </Button>
                 </div>
 
@@ -251,7 +229,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 
                 <Sheet>
                     <SheetTrigger asChild>
-                        <Button variant="outline" size="icon">
+                        <Button variant="outline" size="icon" disabled={isDisabled}>
                             <Settings className="w-4 h-4" />
                         </Button>
                     </SheetTrigger>
@@ -300,15 +278,18 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={generateSchedule} disabled={isSaving}>
+                            <DropdownMenuItem onClick={generateSchedule} disabled={isDisabled}>
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 Generar Horario
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={isDisabled}>
                                  <AlertDialog>
                                   <AlertDialogTrigger asChild>
-                                     <div className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
-                                        <Icons.save className="mr-2 h-4 w-4" />
+                                     <div className={cn(
+                                       "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground",
+                                       isDisabled && "pointer-events-none opacity-50"
+                                     )}>
+                                        {isScheduleLocked ? <Lock className="mr-2 h-4 w-4"/> : <Icons.save className="mr-2 h-4 w-4" />}
                                         Guardar
                                      </div>
                                   </AlertDialogTrigger>
@@ -316,7 +297,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                                     <AlertDialogHeader>
                                       <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                        Esta acción guardará el horario actual en la nube. ¿Estás seguro?
+                                        Esta acción guardará y bloqueará el horario actual en la nube. No podrás realizar más cambios. ¿Estás seguro?
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -328,14 +309,9 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                                   </AlertDialogContent>
                                 </AlertDialog>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={clearSchedule} disabled={isSaving}>
+                            <DropdownMenuItem onClick={clearSchedule} disabled={isDisabled}>
                                 <Icons.trash className="mr-2 h-4 w-4" />
                                 Limpiar
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={exportToCsv} disabled={isSaving}>
-                                <FileDown className="mr-2 h-4 w-4" />
-                                Exportar
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -380,7 +356,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                               <Button
                                 variant="ghost"
                                 className={cn("w-full h-full p-1 text-xs font-semibold border", shiftVariantMap[shift])}
-                                disabled={isSaving}
+                                disabled={isDisabled}
                               >
                                 {shift}
                               </Button>
