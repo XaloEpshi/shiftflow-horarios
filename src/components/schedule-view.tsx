@@ -31,6 +31,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { generateInitialSchedule } from "@/lib/data"
+import { saveSchedule, loadSchedule } from "@/lib/firestore"
+import { Skeleton } from "./ui/skeleton"
 
 const ALL_SHIFT_TYPES: ShiftType[] = ["Mañana", "Tarde", "Noche", "Administrativo", "Insumos", "Descanso"]
 
@@ -53,38 +55,51 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const [schedules, setSchedules] = React.useState<EmployeeSchedule[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
   const [activeEmployeeIds, setActiveEmployeeIds] = React.useState<Set<string>>(new Set(allEmployees.map(e => e.id)));
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [isSaving, setIsSaving] = React.useState(false);
   const { toast } = useToast()
 
   const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
   
-  const getStorageKey = (date: Date) => `schedule_${format(date, "yyyy-MM")}`;
+  const getScheduleId = (date: Date) => `schedule_${format(date, "yyyy-MM")}`;
 
   const generateBlankSchedule = React.useCallback(() => {
     const daysInMonth = getDaysInMonth(currentDate);
-    const blankSchedules = activeEmployees.map(emp => ({
+    return activeEmployees.map(emp => ({
       employeeId: emp.id,
       schedule: Array.from({ length: daysInMonth }, (_, i) => ({
         day: i + 1,
         shift: 'Descanso' as ShiftType,
       })),
     }));
-    setSchedules(blankSchedules);
   }, [currentDate, activeEmployees]);
 
   React.useEffect(() => {
-    const storageKey = getStorageKey(currentDate);
-    try {
-      const savedSchedules = localStorage.getItem(storageKey);
-      if (savedSchedules) {
-        setSchedules(JSON.parse(savedSchedules));
-      } else {
-        generateBlankSchedule();
+    const fetchSchedule = async () => {
+      setIsLoading(true);
+      const scheduleId = getScheduleId(currentDate);
+      try {
+        const savedSchedules = await loadSchedule(scheduleId);
+        if (savedSchedules) {
+          setSchedules(savedSchedules);
+        } else {
+          setSchedules(generateBlankSchedule());
+        }
+      } catch (error) {
+        console.error("Failed to read from Firestore", error);
+        setSchedules(generateBlankSchedule());
+        toast({
+          variant: "destructive",
+          title: "Error al Cargar",
+          description: "No se pudo cargar el horario. Mostrando uno en blanco.",
+        });
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to read from localStorage", error);
-      generateBlankSchedule();
-    }
-  }, [currentDate, activeEmployeeIds, generateBlankSchedule]);
+    };
+
+    fetchSchedule();
+  }, [currentDate, activeEmployeeIds.size, generateBlankSchedule]);
 
   const generateSchedule = React.useCallback(() => {
     const newSchedules = generateInitialSchedule(
@@ -110,24 +125,27 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   }
   
   const clearSchedule = () => {
-    generateBlankSchedule();
+    setSchedules(generateBlankSchedule());
   };
   
-  const saveSchedule = () => {
-    const storageKey = getStorageKey(currentDate);
+  const handleSaveSchedule = async () => {
+    setIsSaving(true);
+    const scheduleId = getScheduleId(currentDate);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(schedules));
+      await saveSchedule(scheduleId, schedules);
       toast({
         title: "Horario Guardado",
-        description: "El horario actual ha sido guardado correctamente.",
+        description: "El horario actual ha sido guardado en la nube.",
       });
     } catch (error) {
-      console.error("Failed to save to localStorage", error);
+      console.error("Failed to save to Firestore", error);
       toast({
         variant: "destructive",
         title: "Error al Guardar",
         description: "No se pudo guardar el horario. Inténtalo de nuevo.",
       });
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -138,7 +156,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   const shiftTypesToDisplay = activeEmployees.length === 7 
     ? ALL_SHIFT_TYPES.filter(s => s !== 'Insumos')
     : ALL_SHIFT_TYPES;
-
 
   const exportToCsv = () => {
     const headers = ["Empleado", ...Array.from({ length: getDaysInMonth(currentDate) }, (_, i) => `${i + 1}`)];
@@ -165,7 +182,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     document.body.removeChild(link);
   };
 
-
   return (
     <Card className="w-full shadow-lg">
       <CardHeader>
@@ -185,13 +201,13 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                 </div>
             
                 <div className="hidden md:flex items-center gap-2">
-                     <Button variant="outline" onClick={generateSchedule}>
+                     <Button variant="outline" onClick={generateSchedule} disabled={isSaving}>
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         Generar
                      </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                         <Button variant="outline">
+                         <Button variant="outline" disabled={isSaving}>
                             <Icons.save className="mr-2 h-4 w-4" />
                             Guardar
                         </Button>
@@ -200,22 +216,22 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                         <AlertDialogHeader>
                           <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
                           <AlertDialogDescription>
-                           Esta acción guardará el horario actual. ¿Estás seguro?
+                           Esta acción guardará el horario actual en la nube. ¿Estás seguro?
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction onClick={saveSchedule}>
+                          <AlertDialogAction onClick={handleSaveSchedule}>
                             Guardar
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                     <Button variant="outline" onClick={clearSchedule}>
+                     <Button variant="outline" onClick={clearSchedule} disabled={isSaving}>
                         <Icons.trash className="mr-2 h-4 w-4" />
                         Limpiar
                     </Button>
-                    <Button onClick={exportToCsv} variant="outline">
+                    <Button onClick={exportToCsv} variant="outline" disabled={isSaving}>
                       <FileDown className="mr-2 h-4 w-4" />
                       Exportar
                     </Button>
@@ -255,8 +271,14 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                                      if (checked) {
                                        newSet.add(employee.id);
                                      } else {
-                                       if (newSet.size > 1) { 
+                                       if (newSet.size > 7) { // Prevent disabling all employees
                                          newSet.delete(employee.id);
+                                       } else {
+                                          toast({
+                                            variant: "destructive",
+                                            title: "Operación no permitida",
+                                            description: "Debe haber al menos 7 empleados activos.",
+                                          });
                                        }
                                      }
                                      return newSet;
@@ -278,7 +300,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={generateSchedule}>
+                            <DropdownMenuItem onClick={generateSchedule} disabled={isSaving}>
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 Generar Horario
                             </DropdownMenuItem>
@@ -294,24 +316,24 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                                     <AlertDialogHeader>
                                       <AlertDialogTitle>Confirmar Guardado</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                        Esta acción guardará el horario actual. ¿Estás seguro?
+                                        Esta acción guardará el horario actual en la nube. ¿Estás seguro?
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                       <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction onClick={saveSchedule}>
+                                      <AlertDialogAction onClick={handleSaveSchedule}>
                                         Guardar
                                       </AlertDialogAction>
                                     </AlertDialogFooter>
                                   </AlertDialogContent>
                                 </AlertDialog>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={clearSchedule}>
+                            <DropdownMenuItem onClick={clearSchedule} disabled={isSaving}>
                                 <Icons.trash className="mr-2 h-4 w-4" />
                                 Limpiar
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={exportToCsv}>
+                            <DropdownMenuItem onClick={exportToCsv} disabled={isSaving}>
                                 <FileDown className="mr-2 h-4 w-4" />
                                 Exportar
                             </DropdownMenuItem>
@@ -323,6 +345,14 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
+          {isLoading ? (
+             <div className="space-y-2">
+                <Skeleton className="h-12 w-full" />
+                {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} className="h-14 w-full" />
+                ))}
+            </div>
+          ) : (
           <Table className="min-w-full border-collapse">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -350,6 +380,7 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
                               <Button
                                 variant="ghost"
                                 className={cn("w-full h-full p-1 text-xs font-semibold border", shiftVariantMap[shift])}
+                                disabled={isSaving}
                               >
                                 {shift}
                               </Button>
@@ -370,8 +401,9 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
               })}
             </TableBody>
           </Table>
+          )}
         </div>
-         {selectedEmployeeId !== 'all' && (
+         {selectedEmployeeId !== 'all' && !isLoading && (
           <div className="p-4 mt-4 border rounded-lg bg-muted/50">
             <h4 className="mb-2 font-bold">Resumen de Turnos:</h4>
             <div className="flex flex-wrap gap-2">
