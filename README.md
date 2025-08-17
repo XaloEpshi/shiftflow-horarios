@@ -12,6 +12,30 @@ Horario CPW es una aplicación web construida con Next.js y React para la gesti�
 
 ---
 
+## Lógica de Asignación de Horarios
+
+El sistema de asignación de horarios es dinámico y se adapta automáticamente según si el equipo está completo (8 empleados) o si hay alguien ausente (7 empleados).
+
+### 1. Detección del Número de Empleados
+El sistema primero cuenta cuántos empleados están marcados como "activos". Basado en este número, elige una de dos lógicas de rotación.
+
+### 2. Lógica para 8 Empleados (Equipo Completo)
+-   **Base en Parejas**: Los 8 empleados se agrupan en 4 parejas fijas.
+-   **Ciclo de Rotación Semanal**: Se utiliza un ciclo de 4 semanas donde cada pareja rota por los diferentes turnos.
+    -   **Semana 1**: Una pareja se asigna a "Noche", otra a "Mañana", otra a "Tarde", y la última pareja se divide para cubrir "Administrativo" e "Insumos".
+    -   **Semanas Siguientes**: Las parejas rotan al siguiente turno en el ciclo. Por ejemplo, la pareja que estaba en "Noche" pasa a "Administrativo/Insumos", la de "Mañana" pasa a "Noche", y así sucesivamente.
+-   **Equidad**: Este método garantiza que, a lo largo de un mes, todos los empleados hayan pasado por todos los turnos y que cada pareja solo tenga una semana de turno de noche.
+
+### 3. Lógica para 7 Empleados (Un Ausente)
+-   **Turno "Insumos" Deshabilitado**: Para optimizar la cobertura, el turno "Insumos" se desactiva por completo.
+-   **Rotación del Turno "Administrativo"**: Cada semana, un empleado diferente es asignado al turno "Administrativo". La asignación rota entre los 7 empleados, asegurando que cada uno lo cubra una vez cada 7 semanas.
+-   **Rotación de Turnos Principales**: Los 6 empleados restantes se agrupan en 3 parejas que rotan semanalmente por los turnos de "Mañana", "Tarde" y "Noche".
+
+### 4. Reglas de Descanso
+En ambas lógicas, se aplican automáticamente las reglas de descanso de fin de semana según el tipo de turno asignado para cumplir con las normativas.
+
+---
+
 ## Mapa Conceptual del Proyecto
 
 A continuación se muestra la estructura de carpetas y archivos completa del proyecto, junto con una breve descripción de su propósito.
@@ -60,7 +84,7 @@ A continuación se muestra la estructura de carpetas y archivos completa del pro
 │   │   │   ├── switch.tsx
 │   │   │   ├── table.tsx
 │   │   │   ├── tabs.tsx
-│   ¡   │   │   ├── textarea.tsx
+│   │   │   ├── textarea.tsx
 │   │   │   ├── toast.tsx
 │   │   │   ├── toaster.tsx
 │   │   │   └── tooltip.tsx
