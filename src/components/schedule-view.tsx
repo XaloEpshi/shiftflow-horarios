@@ -18,6 +18,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Icons } from "@/components/icons"
+import { useToast } from "@/hooks/use-toast"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,12 +50,42 @@ interface ScheduleViewProps {
 
 export function ScheduleView({ employees: allEmployees, initialScheduleData }: ScheduleViewProps) {
   const [currentDate, setCurrentDate] = React.useState(startOfMonth(new Date()))
-  const [schedules, setSchedules] = React.useState<EmployeeSchedule[]>(initialScheduleData)
+  const [schedules, setSchedules] = React.useState<EmployeeSchedule[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string>("all")
   const [activeEmployeeIds, setActiveEmployeeIds] = React.useState<Set<string>>(new Set(allEmployees.map(e => e.id)));
-  
+  const { toast } = useToast()
+
   const activeEmployees = React.useMemo(() => allEmployees.filter(e => activeEmployeeIds.has(e.id)), [allEmployees, activeEmployeeIds]);
   
+  const getStorageKey = (date: Date) => `schedule_${format(date, "yyyy-MM")}`;
+
+  const generateBlankSchedule = React.useCallback(() => {
+    const daysInMonth = getDaysInMonth(currentDate);
+    const blankSchedules = activeEmployees.map(emp => ({
+      employeeId: emp.id,
+      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
+        day: i + 1,
+        shift: 'Descanso' as ShiftType,
+      })),
+    }));
+    setSchedules(blankSchedules);
+  }, [currentDate, activeEmployees]);
+
+  React.useEffect(() => {
+    const storageKey = getStorageKey(currentDate);
+    try {
+      const savedSchedules = localStorage.getItem(storageKey);
+      if (savedSchedules) {
+        setSchedules(JSON.parse(savedSchedules));
+      } else {
+        generateBlankSchedule();
+      }
+    } catch (error) {
+      console.error("Failed to read from localStorage", error);
+      generateBlankSchedule();
+    }
+  }, [currentDate, activeEmployeeIds, generateBlankSchedule]);
+
   const generateSchedule = React.useCallback(() => {
     const newSchedules = generateInitialSchedule(
         activeEmployees,
@@ -63,11 +94,6 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
     );
     setSchedules(newSchedules);
   }, [currentDate, activeEmployees]);
-  
-  React.useEffect(() => {
-    generateSchedule();
-  }, [activeEmployeeIds, currentDate, generateSchedule]);
-
 
   const handleShiftChange = (employeeId: string, day: number, newShift: ShiftType) => {
     setSchedules(prevSchedules =>
@@ -84,21 +110,25 @@ export function ScheduleView({ employees: allEmployees, initialScheduleData }: S
   }
   
   const clearSchedule = () => {
-    const daysInMonth = getDaysInMonth(currentDate);
-    const resetSchedules = activeEmployees.map(emp => ({
-      employeeId: emp.id,
-      schedule: Array.from({ length: daysInMonth }, (_, i) => ({
-        day: i + 1,
-        shift: 'Descanso' as ShiftType,
-      })),
-    }));
-    setSchedules(resetSchedules);
+    generateBlankSchedule();
   };
   
   const saveSchedule = () => {
-    // Logic to save schedule, maybe to localStorage or an API
-    console.log("Saving schedules:", schedules)
-    // You might want to add some user feedback here, like a toast notification
+    const storageKey = getStorageKey(currentDate);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(schedules));
+      toast({
+        title: "Horario Guardado",
+        description: "El horario actual ha sido guardado correctamente.",
+      });
+    } catch (error) {
+      console.error("Failed to save to localStorage", error);
+      toast({
+        variant: "destructive",
+        title: "Error al Guardar",
+        description: "No se pudo guardar el horario. Inténtalo de nuevo.",
+      });
+    }
   }
 
   const filteredEmployees = selectedEmployeeId === "all"
